@@ -105,6 +105,7 @@
 	"enhancePrompt": "Mejorar el mensaje con contexto adicional",
 	"addImages": "Agregar imágenes al mensaje",
 	"sendMessage": "Enviar mensaje",
+	"pressToSend": "Presiona {{keyCombination}} para enviar",
 	"stopTts": "Detener texto a voz",
 	"typeMessage": "Escribe un mensaje...",
 	"typeTask": "Escribe tu tarea aquí...",
@@ -146,7 +147,8 @@
 			"403": "No autorizado. Tu clave API es válida, pero el proveedor se negó a completar esta solicitud.",
 			"429": "Demasiadas solicitudes. Te estás viendo limitado por el proveedor. Por favor espera un poco antes de tu próxima llamada API.",
 			"500": "Error del servidor del proveedor. Algo está mal en el lado del proveedor, no hay nada mal con tu solicitud.",
-			"unknown": "Error API desconocido. Por favor contacta al soporte de Roo Code."
+			"unknown": "Error API desconocido. Por favor contacta al soporte de Roo Code.",
+			"connection": "Error de conexión. Asegúrate de tener una conexión a Internet funcional."
 		}
 	},
 	"checkpoint": {
@@ -197,8 +199,6 @@
 		"didViewTopLevel": "Roo vio los archivos de nivel superior en este directorio",
 		"wantsToViewRecursive": "Roo quiere ver recursivamente todos los archivos en este directorio",
 		"didViewRecursive": "Roo vio recursivamente todos los archivos en este directorio",
-		"wantsToViewDefinitions": "Roo quiere ver nombres de definiciones de código fuente utilizados en este directorio",
-		"didViewDefinitions": "Roo vio nombres de definiciones de código fuente utilizados en este directorio",
 		"wantsToSearch": "Roo quiere buscar en este directorio <code>{{regex}}</code>",
 		"didSearch": "Roo buscó en este directorio <code>{{regex}}</code>",
 		"wantsToSearchOutsideWorkspace": "Roo quiere buscar en este directorio (fuera del espacio de trabajo) <code>{{regex}}</code>",
@@ -206,9 +206,7 @@
 		"wantsToViewTopLevelOutsideWorkspace": "Roo quiere ver los archivos de nivel superior en este directorio (fuera del espacio de trabajo)",
 		"didViewTopLevelOutsideWorkspace": "Roo vio los archivos de nivel superior en este directorio (fuera del espacio de trabajo)",
 		"wantsToViewRecursiveOutsideWorkspace": "Roo quiere ver recursivamente todos los archivos en este directorio (fuera del espacio de trabajo)",
-		"didViewRecursiveOutsideWorkspace": "Roo vio recursivamente todos los archivos en este directorio (fuera del espacio de trabajo)",
-		"wantsToViewDefinitionsOutsideWorkspace": "Roo quiere ver nombres de definiciones de código fuente utilizados en este directorio (fuera del espacio de trabajo)",
-		"didViewDefinitionsOutsideWorkspace": "Roo vio nombres de definiciones de código fuente utilizados en este directorio (fuera del espacio de trabajo)"
+		"didViewRecursiveOutsideWorkspace": "Roo vio recursivamente todos los archivos en este directorio (fuera del espacio de trabajo)"
 	},
 	"commandOutput": "Salida del comando",
 	"commandExecution": {
@@ -258,6 +256,11 @@
 		"hasQuestion": "Roo tiene una pregunta"
 	},
 	"taskCompleted": "Tarea completada",
+	"errorDetails": {
+		"title": "Detalles del error",
+		"copyToClipboard": "Copiar al portapapeles",
+		"copied": "¡Copiado!"
+	},
 	"powershell": {
 		"issues": "Parece que estás teniendo problemas con Windows PowerShell, por favor consulta esta"
 	},

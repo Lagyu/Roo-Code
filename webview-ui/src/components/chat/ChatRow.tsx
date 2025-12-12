@@ -60,6 +60,7 @@ import {
 	FolderTree,
 	TerminalSquare,
 	MessageCircle,
+	Repeat2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PathTooltip } from "../ui/PathTooltip"
@@ -731,32 +732,6 @@ export const ChatRowContent = ({
 						</div>
 					</>
 				)
-			case "listCodeDefinitionNames":
-				return (
-					<>
-						<div style={headerStyle}>
-							{toolIcon("file-code")}
-							<span style={{ fontWeight: "bold" }}>
-								{message.type === "ask"
-									? tool.isOutsideWorkspace
-										? t("chat:directoryOperations.wantsToViewDefinitionsOutsideWorkspace")
-										: t("chat:directoryOperations.wantsToViewDefinitions")
-									: tool.isOutsideWorkspace
-										? t("chat:directoryOperations.didViewDefinitionsOutsideWorkspace")
-										: t("chat:directoryOperations.didViewDefinitions")}
-							</span>
-						</div>
-						<div className="pl-6">
-							<CodeAccordian
-								path={tool.path}
-								code={tool.content}
-								language="markdown"
-								isExpanded={isExpanded}
-								onToggleExpand={handleToggleExpand}
-							/>
-						</div>
-					</>
-				)
 			case "searchFiles":
 				return (
 					<>
@@ -1142,11 +1117,11 @@ export const ChatRowContent = ({
 					)
 				case "api_req_retry_delayed":
 					let body = t(`chat:apiRequest.failed`)
-					let retryInfo, code, docsURL
+					let retryInfo, rawError, code, docsURL
 					if (message.text !== undefined) {
 						// Try to show richer error message for that code, if available
 						const potentialCode = parseInt(message.text.substring(0, 3))
-						if (potentialCode >= 400) {
+						if (!isNaN(potentialCode) && potentialCode >= 400) {
 							code = potentialCode
 							const stringForError = `chat:apiRequest.errorMessage.${code}`
 							if (i18n.exists(stringForError)) {
@@ -1162,15 +1137,30 @@ export const ChatRowContent = ({
 								body = t("chat:apiRequest.errorMessage.unknown")
 								docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 							}
-							retryInfo = (
-								<p className="mt-1 font-light text-xs text-vscode-errorForeground/80 cursor-default">
-									{message.text.substring(4)}
-								</p>
-							)
+						} else if (message.text.indexOf("Connection error") === 0) {
+							body = t("chat:apiRequest.errorMessage.connection")
 						} else {
-							// Non-HTTP-status-code error message - display the actual error text
-							body = message.text
+							// Non-HTTP-status-code error message - store full text as errorDetails
+							body = t("chat:apiRequest.errorMessage.unknown")
+							docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 						}
+
+						// This isn't pretty, but since the retry logic happens at a lower level
+						// and the message object is just a flat string, we need to extract the
+						// retry information using this "tag" as a convention
+						const retryTimerMatch = message.text.match(/<retry_timer>(.*?)<\/retry_timer>/)
+						const retryTimer = retryTimerMatch && retryTimerMatch[1] ? parseInt(retryTimerMatch[1], 10) : 0
+						rawError = message.text.replace(/<retry_timer>(.*?)<\/retry_timer>/, "").trim()
+						retryInfo = retryTimer > 0 && (
+							<p
+								className={cn(
+									"mt-2 font-light text-xs  text-vscode-descriptionForeground cursor-default flex items-center gap-1 transition-all duration-1000",
+									retryTimer === 0 ? "opacity-0 max-h-0" : "max-h-2 opacity-100",
+								)}>
+								<Repeat2 className="size-3" strokeWidth={1.5} />
+								<span>{retryTimer}s</span>
+							</p>
+						)
 					}
 					return (
 						<ErrorRow
@@ -1179,6 +1169,7 @@ export const ChatRowContent = ({
 							message={body}
 							docsURL={docsURL}
 							additionalContent={retryInfo}
+							errorDetails={rawError}
 						/>
 					)
 				case "api_req_finished":
@@ -1291,7 +1282,7 @@ export const ChatRowContent = ({
 						</div>
 					)
 				case "error":
-					return <ErrorRow type="error" message={message.text || ""} />
+					return <ErrorRow type="error" message={t("chat:error")} errorDetails={message.text || undefined} />
 				case "completion_result":
 					return (
 						<>

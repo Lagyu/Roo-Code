@@ -105,6 +105,7 @@
 	"enhancePrompt": "追加コンテキストでプロンプトを強化",
 	"addImages": "メッセージに画像を追加",
 	"sendMessage": "メッセージを送信",
+	"pressToSend": "{{keyCombination}}を押して送信",
 	"stopTts": "テキスト読み上げを停止",
 	"typeMessage": "メッセージを入力...",
 	"typeTask": "ここにタスクを入力...",
@@ -146,7 +147,8 @@
 			"403": "認可されていません。API キーは有効ですが、プロバイダーがこのリクエストの完了を拒否しました。",
 			"429": "リクエストが多すぎます。プロバイダーによってレート制限されています。次の API 呼び出しの前にお待ちください。",
 			"500": "プロバイダー サーバー エラー。プロバイダー側に問題があり、リクエスト自体に問題はありません。",
-			"unknown": "不明な API エラー。Roo Code のサポートにお問い合わせください。"
+			"unknown": "不明な API エラー。Roo Code のサポートにお問い合わせください。",
+			"connection": "接続エラー。インターネット接続が機能していることを確認してください。"
 		}
 	},
 	"checkpoint": {
@@ -197,8 +199,6 @@
 		"didViewTopLevel": "Rooはこのディレクトリのトップレベルファイルを表示しました",
 		"wantsToViewRecursive": "Rooはこのディレクトリのすべてのファイルを再帰的に表示したい",
 		"didViewRecursive": "Rooはこのディレクトリのすべてのファイルを再帰的に表示しました",
-		"wantsToViewDefinitions": "Rooはこのディレクトリで使用されているソースコード定義名を表示したい",
-		"didViewDefinitions": "Rooはこのディレクトリで使用されているソースコード定義名を表示しました",
 		"wantsToSearch": "Rooはこのディレクトリで <code>{{regex}}</code> を検索したい",
 		"didSearch": "Rooはこのディレクトリで <code>{{regex}}</code> を検索しました",
 		"wantsToSearchOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）で <code>{{regex}}</code> を検索したい",
@@ -206,9 +206,7 @@
 		"wantsToViewTopLevelOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）のトップレベルファイルを表示したい",
 		"didViewTopLevelOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）のトップレベルファイルを表示しました",
 		"wantsToViewRecursiveOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）のすべてのファイルを再帰的に表示したい",
-		"didViewRecursiveOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）のすべてのファイルを再帰的に表示しました",
-		"wantsToViewDefinitionsOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）で使用されているソースコード定義名を表示したい",
-		"didViewDefinitionsOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）で使用されているソースコード定義名を表示しました"
+		"didViewRecursiveOutsideWorkspace": "Rooはこのディレクトリ（ワークスペース外）のすべてのファイルを再帰的に表示しました"
 	},
 	"commandOutput": "コマンド出力",
 	"commandExecution": {
@@ -258,6 +256,11 @@
 		"hasQuestion": "Rooは質問があります"
 	},
 	"taskCompleted": "タスク完了",
+	"errorDetails": {
+		"title": "エラー詳細",
+		"copyToClipboard": "クリップボードにコピー",
+		"copied": "コピーしました！"
+	},
 	"powershell": {
 		"issues": "Windows PowerShellに問題があるようです。こちらを参照してください"
 	},
