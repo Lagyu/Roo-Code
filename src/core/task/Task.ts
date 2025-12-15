@@ -3718,6 +3718,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// This allows non-destructive condensing where messages are tagged but not deleted,
 		// enabling accurate rewind operations while still sending condensed history to the API.
 		const effectiveHistory = getEffectiveApiHistory(this.apiConversationHistory)
+
+		// Seed OpenAI Responses API chaining after resume/restart using the last stored response id.
+		// This enables openai-native to use `previous_response_id` without replaying full history.
+		if (this.apiConfiguration.apiProvider === "openai-native") {
+			const lastAssistantWithId = [...effectiveHistory]
+				.reverse()
+				.find((m) => m.role === "assistant" && typeof (m as any).id === "string") as any
+			const prevResponseId = lastAssistantWithId?.id
+			if (typeof prevResponseId === "string" && prevResponseId.startsWith("resp_")) {
+				;(this.api as any).setResponseId?.(prevResponseId)
+			}
+		}
+
 		const messagesSinceLastSummary = getMessagesSinceLastSummary(effectiveHistory)
 		const messagesWithoutImages = maybeRemoveImageBlocks(messagesSinceLastSummary, this.api)
 		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])

@@ -75,6 +75,8 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 	private lastResponseOutput: any[] | undefined
 	// Last top-level response id from Responses API (for troubleshooting)
 	private lastResponseId: string | undefined
+	// Last successfully stored top-level response id (for previous_response_id chaining)
+	private previousResponseId: string | undefined
 	// Abort controller for cancelling ongoing requests
 	private abortController?: AbortController
 	// Sequence number for background mode stream resumption
@@ -273,11 +275,25 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Use Responses API for ALL models
 		const { verbosity, reasoning } = this.getModel()
 
+		const willUseBackgroundMode =
+			this.options.openAiNativeBackgroundMode === true || model.info.backgroundMode === true
+
 		// Resolve reasoning effort for models that support it
 		const reasoningEffort = this.getReasoningEffort(model)
 
-		// Format full conversation (messages already include reasoning items from API history)
-		const formattedInput = this.formatFullConversation(systemPrompt, messages)
+		const canUsePreviousResponseId =
+			willUseBackgroundMode && !!this.previousResponseId && metadata?.suppressPreviousResponseId !== true
+
+		// In stored/background mode, do not replay encrypted reasoning items into `input`.
+		// When chaining with previous_response_id, only send the incremental user turn.
+		const messagesForRequest = canUsePreviousResponseId
+			? this.getIncrementalMessagesForChainedRequest(messages)
+			: willUseBackgroundMode
+				? this.stripReasoningItems(messages)
+				: messages
+
+		// Format conversation for the Responses API using structured items
+		const formattedInput = this.formatFullConversation(systemPrompt, messagesForRequest)
 
 		// Build request body
 		const requestBody = this.buildRequestBody(
@@ -287,6 +303,10 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			verbosity,
 			reasoningEffort,
 			metadata,
+			{
+				previousResponseId: canUsePreviousResponseId ? this.previousResponseId : undefined,
+				omitEncryptedReasoningInclude: canUsePreviousResponseId,
+			},
 		)
 
 		const initialMax =
@@ -322,6 +342,11 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					}
 					yield chunk
 				}
+
+				// Track last successfully stored response id for chaining.
+				if (body?.store === true && this.lastResponseId) {
+					this.previousResponseId = this.lastResponseId
+				}
 				return
 			} catch (error) {
 				const isLastAttempt = attemptIndex === attemptBodies.length - 1
@@ -340,6 +365,22 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		}
 	}
 
+	private stripReasoningItems(messages: Anthropic.Messages.MessageParam[]): Anthropic.Messages.MessageParam[] {
+		return messages.filter((m) => (m as any)?.type !== "reasoning")
+	}
+
+	private getIncrementalMessagesForChainedRequest(
+		messages: Anthropic.Messages.MessageParam[],
+	): Anthropic.Messages.MessageParam[] {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const msg = messages[i] as any
+			if (msg && typeof msg === "object" && msg.role === "user") {
+				return [msg]
+			}
+		}
+		return []
+	}
+
 	private buildRequestBody(
 		model: OpenAiNativeModel,
 		formattedInput: any,
@@ -347,6 +388,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		verbosity: any,
 		reasoningEffort: ReasoningEffortExtended | undefined,
 		metadata?: ApiHandlerCreateMessageMetadata,
+		options?: { previousResponseId?: string; omitEncryptedReasoningInclude?: boolean },
 	): any {
 		// Ensure all properties are in the required array for OpenAI's strict mode
 		// This recursively processes nested objects and array items
@@ -395,6 +437,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			instructions?: string
 			service_tier?: ServiceTier
 			include?: string[]
+			previous_response_id?: string
 			/** Prompt cache retention policy: "in_memory" (default) or "24h" for extended caching */
 			prompt_cache_retention?: "in_memory" | "24h"
 			tools?: Array<{
@@ -427,8 +470,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			// Unlike Chat Completions, system/developer roles in input have no special semantics here.
 			// The official way to set system behavior is the top-level `instructions` field.
 			instructions: systemPrompt,
+			// Chain from the last stored response id when available.
+			...(options?.previousResponseId ? { previous_response_id: options.previousResponseId } : {}),
 			// Only include encrypted reasoning content when reasoning effort is set
-			...(reasoningEffort ? { include: ["reasoning.encrypted_content"] } : {}),
+			...(!options?.omitEncryptedReasoningInclude && reasoningEffort
+				? { include: ["reasoning.encrypted_content"] }
+				: {}),
 			...(reasoningEffort
 				? {
 						reasoning: {
@@ -2003,12 +2050,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 	}
 
 	/**
-	 * Sets the last response ID for conversation continuity.
-	 * Typically only used in tests or special flows.
-	 * @param responseId The response ID to store
+	 * Seeds `previous_response_id` chaining for stored conversations.
+	 * Used after task resume/restart to continue a stored Responses thread without replaying history.
+	 * @param responseId The stored response ID to chain from
 	 */
 	setResponseId(responseId: string): void {
-		this.lastResponseId = responseId
+		this.previousResponseId = responseId
 	}
 
 	async completePrompt(prompt: string): Promise<string> {

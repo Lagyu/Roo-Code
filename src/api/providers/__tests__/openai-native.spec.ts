@@ -107,6 +107,79 @@ describe("OpenAiNativeHandler", () => {
 			expect(textChunks[1].text).toBe(" response")
 		})
 
+		it("should chain stored background requests via previous_response_id and send only incremental input", async () => {
+			const mockFetch = vitest
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.done","response":{"id":"resp_first","usage":{"prompt_tokens":1,"completion_tokens":1}}}\n\n',
+								),
+							)
+							controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+							controller.close()
+						},
+					}),
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.done","response":{"id":"resp_second","usage":{"prompt_tokens":1,"completion_tokens":1}}}\n\n',
+								),
+							)
+							controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+							controller.close()
+						},
+					}),
+				})
+
+			global.fetch = mockFetch as any
+
+			// Force SDK path to fail so it falls back to fetch (allows request body inspection)
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			const handler = new OpenAiNativeHandler({
+				apiModelId: "gpt-5-pro-2025-10-06",
+				openAiNativeApiKey: "test-api-key",
+			})
+
+			for await (const _ of handler.createMessage(systemPrompt, [{ role: "user", content: "Q1" }])) {
+				// drain
+			}
+
+			const firstBody = JSON.parse((mockFetch.mock.calls[0][1] as any).body)
+			expect(firstBody.store).toBe(true)
+			expect(firstBody.previous_response_id).toBeUndefined()
+
+			const history: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: "Q1" },
+				{ role: "assistant", content: "A1" },
+				{ role: "user", content: "Q2" },
+			]
+
+			for await (const _ of handler.createMessage(systemPrompt, history)) {
+				// drain
+			}
+
+			const secondBody = JSON.parse((mockFetch.mock.calls[1][1] as any).body)
+			expect(secondBody.store).toBe(true)
+			expect(secondBody.previous_response_id).toBe("resp_first")
+			expect(secondBody.include).toBeUndefined()
+			expect(secondBody.input).toEqual([
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q2" }],
+				},
+			])
+		})
+
 		it("should handle API errors", async () => {
 			// Mock fetch to return error
 			const mockFetch = vitest.fn().mockResolvedValue({
