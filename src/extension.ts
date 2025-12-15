@@ -30,6 +30,7 @@ import { CodeIndexManager } from "./services/code-index/manager"
 import { MdmService } from "./services/mdm/MdmService"
 import { migrateSettings } from "./utils/migrateSettings"
 import { autoImportSettings } from "./utils/autoImportSettings"
+import { setProviderLogger, type ProviderLogEntry } from "./api/providers/provider-logger"
 import { API } from "./extension/api"
 
 import {
@@ -65,6 +66,62 @@ export async function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel(Package.outputChannel)
 	context.subscriptions.push(outputChannel)
 	outputChannel.appendLine(`${Package.name} extension activated - ${JSON.stringify(Package)}`)
+
+	const configureProviderLogging = () => {
+		const config = vscode.workspace.getConfiguration(Package.name)
+		const enabledSetting = config.get<boolean>("enableProviderLogging") ?? false
+		const enabledEnv =
+			process.env.ROO_PROVIDER_LOGGING === "1" ||
+			process.env.ROO_PROVIDER_LOGGING === "true" ||
+			process.env.ROO_PROVIDER_LOGGING === "yes"
+
+		if (enabledSetting || enabledEnv) {
+			setProviderLogger((entry: ProviderLogEntry & { timestamp: number }) => {
+				const timestamp = new Date(entry.timestamp).toISOString()
+				const parts = [
+					`[provider:${entry.provider}]`,
+					entry.model ? `[model:${entry.model}]` : undefined,
+					entry.requestId ? `[req:${entry.requestId}]` : undefined,
+					`[${entry.stage}]`,
+				].filter(Boolean)
+
+				const prefix = parts.join(" ")
+				const header = entry.message ? `${prefix} ${entry.message}` : prefix
+
+				outputChannel.appendLine(`${timestamp} ${header}`)
+
+				if (entry.data !== undefined) {
+					try {
+						outputChannel.appendLine(JSON.stringify(entry.data, null, 2))
+					} catch {
+						outputChannel.appendLine(String(entry.data))
+					}
+				}
+
+				if (entry.error !== undefined) {
+					try {
+						outputChannel.appendLine(JSON.stringify(entry.error, null, 2))
+					} catch {
+						outputChannel.appendLine(String(entry.error))
+					}
+				}
+			})
+
+			outputChannel.appendLine("[provider-logger] Provider request/response logging enabled")
+		} else {
+			setProviderLogger(undefined)
+		}
+	}
+
+	configureProviderLogging()
+
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration(`${Package.name}.enableProviderLogging`)) {
+				configureProviderLogging()
+			}
+		}),
+	)
 
 	// Migrate old settings to new
 	await migrateSettings(context, outputChannel)

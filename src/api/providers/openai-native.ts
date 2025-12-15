@@ -21,6 +21,7 @@ import { ApiStream, ApiStreamUsageChunk } from "../transform/stream"
 import { getModelParams } from "../transform/model-params"
 
 import { BaseProvider } from "./base-provider"
+import { logProviderEvent, type ProviderLogStage } from "./provider-logger"
 import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata } from "../index"
 
 export type OpenAiNativeModel = ReturnType<OpenAiNativeHandler["getModel"]>
@@ -29,6 +30,11 @@ export type OpenAiNativeModel = ReturnType<OpenAiNativeHandler["getModel"]>
 
 // Constants for model identification
 const GPT5_MODEL_PREFIX = "gpt-5"
+
+// Default caps for max_output_tokens to avoid oversized KV allocations ("no_kv_space") in some deployments.
+// Users can override via the profile's `modelMaxTokens` setting.
+const OPENAI_NATIVE_DEFAULT_MAX_OUTPUT_TOKENS = 16_384
+const OPENAI_NATIVE_AZURE_DEFAULT_MAX_OUTPUT_TOKENS = 8_192
 
 // Marker for terminal background-mode failures so we don't attempt resume/poll fallbacks
 function createTerminalBackgroundError(message: string): Error {
@@ -39,6 +45,25 @@ function createTerminalBackgroundError(message: string): Error {
 }
 function isTerminalBackgroundError(err: any): boolean {
 	return !!(err && (err as any).isTerminalBackgroundError)
+}
+
+function isAzureOpenAiBaseUrl(baseUrl?: string): boolean {
+	if (!baseUrl) return false
+	return baseUrl.toLowerCase().includes(".openai.azure.com")
+}
+
+function isNoKvSpaceError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error)
+	const lower = message.toLowerCase()
+	// Different gateways/deployments surface KV-cache allocation failures with different strings.
+	// Examples:
+	// - "no_kv_space"
+	// - "Failed to extend cache for completion ..."
+	return (
+		lower.includes("no_kv_space") ||
+		lower.includes("failed to extend cache for completion") ||
+		lower.includes("failed to extend cache")
+	)
 }
 
 export class OpenAiNativeHandler extends BaseProvider implements SingleCompletionHandler {
@@ -61,6 +86,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 	// Per-request tracking to prevent stale resume attempts
 	private currentRequestResponseId?: string
 	private currentRequestSequenceNumber?: number
+	private currentRequestLogId?: string
 
 	// Event types handled by the shared event processor to avoid duplication
 	private readonly coreHandledEventTypes = new Set<string>([
@@ -89,7 +115,74 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			this.options.enableResponsesReasoningSummary = true
 		}
 		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
-		this.client = new OpenAI({ baseURL: this.options.openAiNativeBaseUrl, apiKey })
+		const rawBaseUrl = this.options.openAiNativeBaseUrl
+		const normalizedBaseUrl = rawBaseUrl
+			? (() => {
+					const normalized = rawBaseUrl.replace(/\/+$/, "")
+					const hasVersion = /\/v\d+(?:\.\d+)?$/.test(normalized)
+					return hasVersion ? normalized : `${normalized}/v1`
+				})()
+			: undefined
+		this.client = new OpenAI({ baseURL: normalizedBaseUrl, apiKey })
+	}
+
+	private getMaxOutputTokensForRequest(model: OpenAiNativeModel): number | undefined {
+		// Respect explicit user override first.
+		const userMax = this.options.modelMaxTokens
+		if (typeof userMax === "number" && Number.isFinite(userMax) && userMax > 0) {
+			const modelCap =
+				typeof model.info.maxTokens === "number" &&
+				Number.isFinite(model.info.maxTokens) &&
+				model.info.maxTokens > 0
+					? model.info.maxTokens
+					: undefined
+			return modelCap ? Math.min(userMax, modelCap) : userMax
+		}
+
+		const computedMax = model.maxTokens
+		if (typeof computedMax !== "number" || !Number.isFinite(computedMax) || computedMax <= 0) return undefined
+
+		// Avoid requesting extremely large outputs by default; some deployments fail KV allocation ("no_kv_space")
+		// when max_output_tokens is set near the model's upper bound.
+		const cap = isAzureOpenAiBaseUrl(this.options.openAiNativeBaseUrl)
+			? OPENAI_NATIVE_AZURE_DEFAULT_MAX_OUTPUT_TOKENS
+			: OPENAI_NATIVE_DEFAULT_MAX_OUTPUT_TOKENS
+
+		return computedMax > cap ? cap : computedMax
+	}
+
+	private getNoKvSpaceRetryMaxOutputTokens(currentMax: number | undefined): number[] {
+		const candidates = isAzureOpenAiBaseUrl(this.options.openAiNativeBaseUrl)
+			? [4096, 2048, 1024, 512]
+			: [8192, 4096, 2048, 1024, 512]
+		return candidates.filter((c) => typeof currentMax !== "number" || c < currentMax)
+	}
+
+	private buildResponsesUrl(path: string): string {
+		const rawBase = this.options.openAiNativeBaseUrl || "https://api.openai.com"
+		// Normalize base by trimming trailing slashes
+		const normalizedBase = rawBase.replace(/\/+$/, "")
+		// If the base already ends with a version segment (e.g. /v1), do not append another
+		const hasVersion = /\/v\d+(?:\.\d+)?$/.test(normalizedBase)
+		const baseWithVersion = hasVersion ? normalizedBase : `${normalizedBase}/v1`
+		const normalizedPath = path.startsWith("/") ? path : `/${path}`
+		return `${baseWithVersion}${normalizedPath}`
+	}
+
+	private createRequestLogId(metadata?: ApiHandlerCreateMessageMetadata): string {
+		const prefix = metadata?.taskId ? `task-${metadata.taskId}` : "req"
+		return `${prefix}-${Date.now().toString(36)}`
+	}
+
+	private logProvider(stage: ProviderLogStage, message: string, data?: unknown, modelId?: string) {
+		logProviderEvent({
+			provider: "openai-native",
+			requestId: this.currentRequestLogId,
+			model: modelId ?? this.getModel().id,
+			stage,
+			message,
+			data,
+		})
 	}
 
 	private normalizeUsage(usage: any, model: OpenAiNativeModel): ApiStreamUsageChunk | undefined {
@@ -196,8 +289,55 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			metadata,
 		)
 
-		// Make the request (pass systemPrompt and messages for potential retry)
-		yield* this.executeRequest(requestBody, model, metadata, systemPrompt, messages)
+		const initialMax =
+			typeof requestBody?.max_output_tokens === "number" && Number.isFinite(requestBody.max_output_tokens)
+				? requestBody.max_output_tokens
+				: undefined
+
+		const retryMaxTokens = this.getNoKvSpaceRetryMaxOutputTokens(initialMax)
+		const attemptBodies = [
+			requestBody,
+			...retryMaxTokens.map((max) => ({
+				...requestBody,
+				max_output_tokens: max,
+			})),
+		]
+
+		for (let attemptIndex = 0; attemptIndex < attemptBodies.length; attemptIndex++) {
+			const body = attemptBodies[attemptIndex]
+			const currentMax =
+				typeof body?.max_output_tokens === "number" && Number.isFinite(body.max_output_tokens)
+					? body.max_output_tokens
+					: undefined
+			let emittedContent = false
+			try {
+				for await (const chunk of this.executeRequest(body, model, metadata, systemPrompt, messages)) {
+					if (
+						chunk.type === "text" ||
+						chunk.type === "reasoning" ||
+						chunk.type === "tool_call" ||
+						chunk.type === "usage"
+					) {
+						emittedContent = true
+					}
+					yield chunk
+				}
+				return
+			} catch (error) {
+				const isLastAttempt = attemptIndex === attemptBodies.length - 1
+				if (!isLastAttempt && isNoKvSpaceError(error) && !emittedContent) {
+					const nextMax = retryMaxTokens[attemptIndex]
+					this.logProvider(
+						"status",
+						"Retrying after KV cache allocation failure with reduced max_output_tokens",
+						{ from: currentMax, to: nextMax },
+						model.id,
+					)
+					continue
+				}
+				throw error
+			}
+		}
 	}
 
 	private buildRequestBody(
@@ -275,6 +415,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 		// Decide whether to enable extended prompt cache retention for this request
 		const promptCacheRetention = this.getPromptCacheRetention(model)
+		const maxOutputTokens = this.getMaxOutputTokensForRequest(model)
 
 		const body: ResponsesRequestBody = {
 			model: model.id,
@@ -302,7 +443,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			}),
 			// Explicitly include the calculated max output tokens.
 			// Use the per-request reserved output computed by Roo (params.maxTokens from getModelParams).
-			...(model.maxTokens ? { max_output_tokens: model.maxTokens } : {}),
+			...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
 			// Include tier when selected and supported by the model, or when explicitly "default"
 			...(requestedTier &&
 				(requestedTier === "default" || allowedTierNames.has(requestedTier)) && {
@@ -358,11 +499,26 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Create AbortController for cancellation
 		this.abortController = new AbortController()
 
+		// Track request for logging
+		this.currentRequestLogId = this.createRequestLogId(metadata)
+
 		// Annotate if this request uses background mode (used for status chunks)
 		this.currentRequestIsBackground = !!requestBody?.background
 		// Reset per-request tracking to prevent stale values from previous requests
 		this.currentRequestResponseId = undefined
 		this.currentRequestSequenceNumber = undefined
+
+		this.logProvider(
+			"request",
+			"Starting OpenAI Responses API request",
+			{
+				baseUrl: this.options.openAiNativeBaseUrl || "https://api.openai.com",
+				background: this.currentRequestIsBackground,
+				store: requestBody?.store,
+				body: requestBody,
+			},
+			model.id,
+		)
 
 		const canAttemptResume = () =>
 			this.currentRequestIsBackground &&
@@ -377,6 +533,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			})) as AsyncIterable<any>
 
 			if (typeof (stream as any)[Symbol.asyncIterator] !== "function") {
+				this.logProvider(
+					"error",
+					"SDK returned non-iterable stream; falling back to SSE",
+					{ responseType: typeof stream },
+					model.id,
+				)
 				throw new Error(
 					"OpenAI SDK did not return an AsyncIterable for Responses API streaming. Falling back to SSE.",
 				)
@@ -394,6 +556,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					}
 				}
 			} catch (iterErr) {
+				this.logProvider("error", "Streaming iterator failed", { error: iterErr }, model.id)
 				// If terminal failure, propagate and do not attempt resume/poll
 				if (isTerminalBackgroundError(iterErr)) {
 					throw iterErr
@@ -412,6 +575,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw iterErr
 			}
 		} catch (sdkErr: any) {
+			this.logProvider("error", "SDK responses.create failed; trying SSE fallback", { error: sdkErr }, model.id)
 			// Propagate terminal background failures without fallback
 			if (isTerminalBackgroundError(sdkErr)) {
 				throw sdkErr
@@ -420,6 +584,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			try {
 				yield* this.makeResponsesApiRequest(requestBody, model, metadata, systemPrompt, messages)
 			} catch (fallbackErr) {
+				this.logProvider("error", "SSE fallback failed", { error: fallbackErr }, model.id)
 				// If SSE fallback fails mid-stream and we can resume, try that
 				if (isTerminalBackgroundError(fallbackErr)) {
 					throw fallbackErr
@@ -440,6 +605,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			this.abortController = undefined
 			// Always clear background flag at end of request lifecycle
 			this.currentRequestIsBackground = undefined
+			this.logProvider(
+				"response",
+				"Responses API request finished",
+				{ responseId: this.lastResponseId },
+				model.id,
+			)
+			this.currentRequestLogId = undefined
 		}
 	}
 
@@ -447,6 +619,14 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Format the entire conversation history for the Responses API using structured format
 		// The Responses API (like Realtime API) accepts a list of items, which can be messages, function calls, or function call outputs.
 		const formattedInput: any[] = []
+
+		// When mixing items like `reasoning` / `function_call` with messages, the Responses API expects
+		// messages in the explicit item form (`type: "message"`). Some gateways (notably Azure) will
+		// reject standalone `reasoning` items if the adjacent messages are sent in the legacy
+		// `{ role, content }` shape.
+		const pushMessage = (role: "user" | "assistant", content: any[]) => {
+			formattedInput.push({ type: "message", role, content })
+		}
 
 		// Do NOT embed the system prompt as a developer message in the Responses API input.
 		// The Responses API treats roles as free-form; use the top-level `instructions` field instead.
@@ -491,7 +671,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 				// Add user message first
 				if (content.length > 0) {
-					formattedInput.push({ role: "user", content })
+					pushMessage("user", content)
 				}
 
 				// Add tool results as separate items
@@ -520,9 +700,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					}
 				}
 
-				// Add assistant message if it has content
+				// Add assistant message. If this assistant turn only contains tool calls (no text),
+				// still add an empty assistant message to keep Responses API input valid when
+				// preceding reasoning items are present.
 				if (content.length > 0) {
-					formattedInput.push({ role: "assistant", content })
+					pushMessage("assistant", content)
+				} else if (toolCalls.length > 0) {
+					pushMessage("assistant", [{ type: "output_text", text: "" }])
 				}
 
 				// Add tool calls as separate items
@@ -532,7 +716,41 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			}
 		}
 
-		return formattedInput
+		// Ensure each `reasoning` item is followed by its required subsequent message item.
+		// Some gateways (notably Azure) will hard-fail the request if a reasoning item is not
+		// immediately followed by an assistant message item, even if the rest of the history is valid.
+		const ensureReasoningPaired = (items: any[]): any[] => {
+			const out: any[] = []
+
+			const isAssistantMessageItem = (item: any): boolean => {
+				if (!item || typeof item !== "object") return false
+				// Explicit item form
+				if (item.type === "message" && item.role === "assistant" && Array.isArray(item.content)) return true
+				// Legacy message form (defensive; should not happen in our formatter)
+				if (!item.type && item.role === "assistant" && Array.isArray(item.content)) return true
+				return false
+			}
+
+			for (let i = 0; i < items.length; i++) {
+				const item = items[i]
+				out.push(item)
+
+				if (item?.type === "reasoning") {
+					const next = items[i + 1]
+					if (!isAssistantMessageItem(next)) {
+						out.push({
+							type: "message",
+							role: "assistant",
+							content: [{ type: "output_text", text: "" }],
+						})
+					}
+				}
+			}
+
+			return out
+		}
+
+		return ensureReasoningPaired(formattedInput)
 	}
 
 	private async *makeResponsesApiRequest(
@@ -543,13 +761,23 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		messages?: Anthropic.Messages.MessageParam[],
 	): ApiStream {
 		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
-		const baseUrl = this.options.openAiNativeBaseUrl || "https://api.openai.com"
-		const url = `${baseUrl}/v1/responses`
+		const url = this.buildResponsesUrl("responses")
 
 		// Create AbortController for cancellation
 		this.abortController = new AbortController()
 
 		try {
+			this.logProvider(
+				"request",
+				"POST /v1/responses (SSE fallback)",
+				{
+					url,
+					background: requestBody?.background,
+					body: requestBody,
+				},
+				model.id,
+			)
+
 			const response = await fetch(url, {
 				method: "POST",
 				headers: {
@@ -560,6 +788,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				body: JSON.stringify(requestBody),
 				signal: this.abortController.signal,
 			})
+
+			this.logProvider(
+				"response",
+				"Responses API fetch completed",
+				{ status: response.status, ok: response.ok },
+				model.id,
+			)
 
 			if (!response.ok) {
 				const errorText = await response.text()
@@ -614,16 +849,30 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					errorMessage += ` - ${errorDetails}`
 				}
 
+				this.logProvider(
+					"error",
+					"Responses API returned error response",
+					{ status: response.status, details: errorDetails || errorMessage },
+					model.id,
+				)
+
 				throw new Error(errorMessage)
 			}
 
 			if (!response.body) {
+				this.logProvider(
+					"error",
+					"Responses API returned no response body",
+					{ status: response.status },
+					model.id,
+				)
 				throw new Error("Responses API error: No response body")
 			}
 
 			// Handle streaming response
 			yield* this.handleStreamResponse(response.body, model)
 		} catch (error) {
+			this.logProvider("error", "Failed to connect to Responses API", { error }, model.id)
 			if (error instanceof Error) {
 				// Re-throw with the original error message if it's already formatted
 				if (error.message.includes("Responses API")) {
@@ -1174,6 +1423,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 	 * Attempt to resume a dropped background stream; if resume fails, fall back to polling.
 	 */
 	private async *attemptResumeOrPoll(responseId: string, lastSeq: number, model: OpenAiNativeModel): ApiStream {
+		this.logProvider(
+			"retry",
+			"Attempting resume for background response",
+			{ responseId, lastSequenceNumber: lastSeq },
+			model.id,
+		)
+
 		// Emit reconnecting status
 		yield {
 			type: "status",
@@ -1183,14 +1439,16 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		}
 
 		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
-		const baseUrl = this.options.openAiNativeBaseUrl || "https://api.openai.com"
 		const resumeMaxRetries = this.options.openAiNativeBackgroundResumeMaxRetries ?? 3
 		const resumeBaseDelayMs = this.options.openAiNativeBackgroundResumeBaseDelayMs ?? 1000
 
 		// Try streaming resume with exponential backoff
 		for (let attempt = 0; attempt < resumeMaxRetries; attempt++) {
 			try {
-				const resumeUrl = `${baseUrl}/v1/responses/${responseId}?stream=true&starting_after=${lastSeq}`
+				const resumeUrl = this.buildResponsesUrl(
+					`responses/${responseId}?stream=true&starting_after=${lastSeq}`,
+				)
+				this.logProvider("request", "Resume request", { attempt: attempt + 1, resumeUrl }, model.id)
 				const res = await fetch(resumeUrl, {
 					method: "GET",
 					headers: {
@@ -1199,6 +1457,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					},
 					signal: this.abortController?.signal,
 				})
+
+				this.logProvider(
+					"response",
+					"Resume response received",
+					{ attempt: attempt + 1, status: res.status, ok: res.ok },
+					model.id,
+				)
 
 				if (!res.ok) {
 					const status = res.status
@@ -1248,6 +1513,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					throw e
 				}
 			} catch (err: any) {
+				this.logProvider("error", "Resume attempt failed", { attempt: attempt + 1, error: err }, model.id)
 				// If terminal error, don't keep retrying resume; fall back to polling immediately
 				const delay = resumeBaseDelayMs * Math.pow(2, attempt)
 				const msg = err instanceof Error ? err.message : String(err)
@@ -1266,6 +1532,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		}
 
 		// Resume failed - begin polling fallback
+		this.logProvider("status", "Switching to polling fallback", { responseId }, model.id)
 		yield {
 			type: "status",
 			mode: "background",
@@ -1278,10 +1545,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		const deadline = Date.now() + pollMaxMinutes * 60_000
 
 		let lastEmittedStatus: "queued" | "in_progress" | "completed" | "failed" | "canceled" | undefined = undefined
+		let pollCount = 0
+		let lastPolledStatus: number | undefined
 
 		while (Date.now() <= deadline) {
 			try {
-				const pollRes = await fetch(`${baseUrl}/v1/responses/${responseId}`, {
+				pollCount += 1
+				const pollRes = await fetch(this.buildResponsesUrl(`responses/${responseId}`), {
 					method: "GET",
 					headers: {
 						Authorization: `Bearer ${apiKey}`,
@@ -1290,6 +1560,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				})
 
 				if (!pollRes.ok) {
+					this.logProvider(
+						"error",
+						"Polling response not ok",
+						{ status: pollRes.status, pollCount, responseId },
+						model.id,
+					)
 					const status = pollRes.status
 					if (status === 401 || status === 403 || status === 404) {
 						yield {
@@ -1319,6 +1595,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				const resp = raw?.response ?? raw
 				const status: string | undefined = resp?.status
 				const respId: string | undefined = resp?.id ?? responseId
+				const shouldLogStatus = status !== lastEmittedStatus || pollRes.status !== lastPolledStatus
 
 				// Capture resolved service tier if present
 				if (resp?.service_tier) {
@@ -1335,6 +1612,14 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						status === "canceled")
 				) {
 					if (status !== lastEmittedStatus) {
+						if (shouldLogStatus) {
+							this.logProvider(
+								"status",
+								"Polling status update",
+								{ status, responseId: respId, pollCount },
+								model.id,
+							)
+						}
 						yield {
 							type: "status",
 							mode: "background",
@@ -1342,6 +1627,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 							...(respId ? { responseId: respId } : {}),
 						}
 						lastEmittedStatus = status as any
+						lastPolledStatus = pollRes.status
 					}
 				}
 
@@ -1391,6 +1677,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					throw createTerminalBackgroundError(msg)
 				}
 			} catch (err: any) {
+				this.logProvider("error", "Polling error", { error: err, pollCount, responseId }, model.id)
 				// If we've already emitted a terminal status, propagate to consumer to stop polling.
 				if (lastEmittedStatus === "failed" || lastEmittedStatus === "canceled") {
 					throw err
@@ -1425,6 +1712,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			await new Promise((r) => setTimeout(r, pollIntervalMs))
 		}
 
+		this.logProvider("error", "Background response polling timed out", { responseId, pollCount }, model.id)
 		throw new Error(`Background response polling timed out for ${responseId}`)
 	}
 
@@ -1464,6 +1752,17 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		}
 		const mappedStatus = statusMap[event?.type as string]
 		if (mappedStatus) {
+			this.logProvider(
+				"status",
+				"Streaming status event",
+				{
+					status: mappedStatus,
+					eventType: event?.type,
+					responseId: event?.response?.id,
+					sequence: event?.sequence_number,
+				},
+				model.id,
+			)
 			yield {
 				type: "status",
 				mode: this.currentRequestIsBackground ? "background" : undefined,
@@ -1759,8 +2058,9 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			}
 
 			// Include max_output_tokens if available
-			if (model.maxTokens) {
-				requestBody.max_output_tokens = model.maxTokens
+			const maxOutputTokens = this.getMaxOutputTokensForRequest(model)
+			if (maxOutputTokens) {
+				requestBody.max_output_tokens = maxOutputTokens
 			}
 
 			// Include text.verbosity only when the model explicitly supports it

@@ -36,6 +36,7 @@
 	"settings.vsCodeLmModelSelector.family.description": "Rodzina modelu językowego (np. gpt-4)",
 	"settings.customStoragePath.description": "Niestandardowa ścieżka przechowywania. Pozostaw puste, aby użyć domyślnej lokalizacji. Obsługuje ścieżki bezwzględne (np. 'D:\\RooCodeStorage')",
 	"settings.enableCodeActions.description": "Włącz szybkie poprawki Roo Code.",
+	"settings.enableProviderLogging.description": "Log provider requests and responses to the Roo Code output channel for debugging (may include request metadata)",
 	"settings.autoImportSettingsPath.description": "Ścieżka do pliku konfiguracyjnego RooCode, który ma być automatycznie importowany podczas uruchamiania rozszerzenia. Obsługuje ścieżki bezwzględne i ścieżki względne do katalogu domowego (np. '~/Documents/roo-code-settings.json'). Pozostaw puste, aby wyłączyć automatyczne importowanie.",
 	"settings.maximumIndexedFilesForFileSearch.description": "Maksymalna liczba plików do indeksowania dla funkcji wyszukiwania plików @. Wyższe wartości zapewniają lepsze wyniki wyszukiwania w dużych projektach, ale mogą zużywać więcej pamięci. Domyślnie: 10 000.",
 	"settings.useAgentRules.description": "Włącz wczytywanie plików AGENTS.md dla reguł specyficznych dla agenta (zobacz https://agent-rules.org/)",

@@ -376,6 +376,9 @@ describe("OpenAiNativeHandler - normalizeUsage", () => {
 			const body = buildRequestBodyForModel("gpt-5")
 			expect(body.prompt_cache_retention).toBeUndefined()
 
+			const fiveTwoBody = buildRequestBodyForModel("gpt-5.2")
+			expect(fiveTwoBody.prompt_cache_retention).toBeUndefined()
+
 			const fourOBody = buildRequestBodyForModel("gpt-4o")
 			expect(fourOBody.prompt_cache_retention).toBeUndefined()
 		})

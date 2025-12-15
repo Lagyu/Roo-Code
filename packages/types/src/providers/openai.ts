@@ -33,7 +33,6 @@ export const openAiNativeModels = {
 		excludedTools: ["apply_diff", "write_to_file"],
 		supportsImages: true,
 		supportsPromptCache: true,
-		promptCacheRetention: "24h",
 		supportsReasoningEffort: ["none", "low", "medium", "high", "xhigh"],
 		reasoningEffort: "medium",
 		inputPrice: 1.75,

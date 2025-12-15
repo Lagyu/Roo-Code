@@ -126,6 +126,162 @@ describe("OpenAiNativeHandler", () => {
 				}
 			}).rejects.toThrow("OpenAI service error")
 		})
+
+		it("should cap max_output_tokens for Azure baseUrl and retry on no_kv_space", async () => {
+			const mockFetch = vitest
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.error","error":{"message":"no_kv_space"}}\n\n',
+								),
+							)
+							controller.close()
+						},
+					}),
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.output_text.delta","delta":"OK"}\n\n',
+								),
+							)
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.done","response":{"usage":{"prompt_tokens":10,"completion_tokens":2}}}\n\n',
+								),
+							)
+							controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+							controller.close()
+						},
+					}),
+				})
+
+			global.fetch = mockFetch as any
+
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.2",
+				openAiNativeBaseUrl: "https://example.openai.azure.com/openai",
+			})
+
+			const stream = handler.createMessage(systemPrompt, messages)
+			const chunks: any[] = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(mockFetch).toHaveBeenCalledTimes(2)
+
+			const firstBody = JSON.parse(((mockFetch.mock.calls[0][1] as any) || {}).body as string)
+			const secondBody = JSON.parse(((mockFetch.mock.calls[1][1] as any) || {}).body as string)
+
+			expect(firstBody.max_output_tokens).toBe(8192)
+			expect(secondBody.max_output_tokens).toBe(4096)
+
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(textChunks.map((c) => c.text).join("")).toContain("OK")
+		})
+
+		it("should retry on Azure when the gateway reports 'failed to extend cache' (KV allocation)", async () => {
+			const mockFetch = vitest
+				.fn()
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.error","error":{"message":"Failed to extend cache for completion abc, total needed tokens 24000"}}\n\n',
+								),
+							)
+							controller.close()
+						},
+					}),
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					body: new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									'data: {"type":"response.output_text.delta","delta":"OK"}\n\n',
+								),
+							)
+							controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+							controller.close()
+						},
+					}),
+				})
+
+			global.fetch = mockFetch as any
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.2",
+				openAiNativeBaseUrl: "https://example.openai.azure.com/openai",
+			})
+
+			const stream = handler.createMessage(systemPrompt, messages)
+			const chunks: any[] = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(mockFetch).toHaveBeenCalledTimes(2)
+
+			const firstBody = JSON.parse(((mockFetch.mock.calls[0][1] as any) || {}).body as string)
+			const secondBody = JSON.parse(((mockFetch.mock.calls[1][1] as any) || {}).body as string)
+
+			expect(firstBody.max_output_tokens).toBe(8192)
+			expect(secondBody.max_output_tokens).toBe(4096)
+
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(textChunks.map((c) => c.text).join("")).toContain("OK")
+		})
+
+		it("should respect modelMaxTokens override for max_output_tokens", async () => {
+			const mockFetch = vitest.fn().mockResolvedValue({
+				ok: true,
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"OK"}\n\n'),
+						)
+						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+						controller.close()
+					},
+				}),
+			})
+			global.fetch = mockFetch as any
+
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.2",
+				openAiNativeBaseUrl: "https://example.openai.azure.com/openai",
+				modelMaxTokens: 1234,
+			})
+
+			const stream = handler.createMessage(systemPrompt, messages)
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			expect(mockFetch).toHaveBeenCalledTimes(1)
+			const body = JSON.parse(((mockFetch.mock.calls[0][1] as any) || {}).body as string)
+			expect(body.max_output_tokens).toBe(1234)
+		})
 	})
 
 	describe("completePrompt", () => {
@@ -280,6 +436,7 @@ describe("OpenAiNativeHandler", () => {
 			// Now using structured format with content arrays (no system prompt in input; it's provided via `instructions`)
 			expect(parsedBody.input).toEqual([
 				{
+					type: "message",
 					role: "user",
 					content: [{ type: "input_text", text: "Hello!" }],
 				},
@@ -850,6 +1007,7 @@ describe("OpenAiNativeHandler", () => {
 			const callBody = JSON.parse(mockFetch.mock.calls[0][1].body)
 			expect(callBody.input).toEqual([
 				{
+					type: "message",
 					role: "user",
 					content: [{ type: "input_text", text: "Hello!" }],
 				},
@@ -878,7 +1036,7 @@ describe("OpenAiNativeHandler", () => {
 				global.fetch = mockFetch as any
 
 				// Mock SDK to fail
-				mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+				mockResponsesCreate.mockRejectedValueOnce(new Error("SDK not available"))
 
 				handler = new OpenAiNativeHandler({
 					...mockOptions,
@@ -1262,14 +1420,17 @@ describe("GPT-5 streaming event coverage (additional)", () => {
 			expect(requestBody.instructions).toBe("You are a helpful assistant.")
 			expect(requestBody.input).toEqual([
 				{
+					type: "message",
 					role: "user",
 					content: [{ type: "input_text", text: "First question" }],
 				},
 				{
+					type: "message",
 					role: "assistant",
 					content: [{ type: "output_text", text: "First answer" }],
 				},
 				{
+					type: "message",
 					role: "user",
 					content: [{ type: "input_text", text: "Second question" }],
 				},
@@ -1319,6 +1480,192 @@ describe("GPT-5 streaming event coverage (additional)", () => {
 					chunks.push(chunk)
 				}
 			}).rejects.toThrow("Responses API error: Model overloaded")
+		})
+
+		it("should insert an empty assistant message after reasoning for tool-only turns", async () => {
+			const mockFetch = vitest.fn().mockResolvedValue({
+				ok: true,
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							new TextEncoder().encode(
+								'data: {"type":"response.output_item.added","item":{"type":"text","text":"ok"}}\n\n',
+							),
+						)
+						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+						controller.close()
+					},
+				}),
+			})
+			global.fetch = mockFetch as any
+
+			// Mock SDK to fail so it falls back to fetch
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.1",
+				reasoningEffort: "low" as any,
+			})
+
+			const toolId = "tool_1"
+			const toolInput = { path: "foo" }
+			const toolOutput = "result text"
+
+			const messagesWithReasoningAndToolOnlyTurn: any[] = [
+				{ role: "user", content: "Q1" },
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+				{
+					role: "assistant",
+					content: [{ type: "tool_use", id: toolId, name: "read_file", input: toolInput }],
+				},
+				{
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: toolId, content: toolOutput }],
+				},
+				{ role: "user", content: "Q2" },
+			]
+
+			const systemPrompt = "You are a helpful assistant."
+			const stream = handler.createMessage(systemPrompt, messagesWithReasoningAndToolOnlyTurn as any)
+			for await (const _ of stream) {
+				// drain
+			}
+
+			const requestBody = JSON.parse((mockFetch.mock.calls[0][1] as any).body)
+			expect(requestBody.input).toEqual([
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q1" }],
+				},
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: "" }],
+				},
+				{
+					type: "function_call",
+					call_id: toolId,
+					name: "read_file",
+					arguments: JSON.stringify(toolInput),
+				},
+				{
+					type: "function_call_output",
+					call_id: toolId,
+					output: toolOutput,
+				},
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q2" }],
+				},
+			])
+		})
+
+		it("should append an empty assistant message when reasoning is the final input item", async () => {
+			const mockFetch = vitest.fn().mockResolvedValue({
+				ok: true,
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('data: {"type":"response.done","response":{}}\n\n'))
+						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+						controller.close()
+					},
+				}),
+			})
+			global.fetch = mockFetch as any
+
+			// Mock SDK to fail so it falls back to fetch
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.1",
+				reasoningEffort: "low" as any,
+			})
+
+			const messagesWithTrailingReasoning: any[] = [
+				{ role: "user", content: "Q1" },
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+			]
+
+			const systemPrompt = "You are a helpful assistant."
+			const stream = handler.createMessage(systemPrompt, messagesWithTrailingReasoning as any)
+			for await (const _ of stream) {
+				// drain
+			}
+
+			const requestBody = JSON.parse((mockFetch.mock.calls[0][1] as any).body)
+			expect(requestBody.input).toEqual([
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q1" }],
+				},
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: "" }],
+				},
+			])
+		})
+
+		it("should insert an empty assistant message when reasoning is followed by a non-assistant item", async () => {
+			const mockFetch = vitest.fn().mockResolvedValue({
+				ok: true,
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('data: {"type":"response.done","response":{}}\n\n'))
+						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+						controller.close()
+					},
+				}),
+			})
+			global.fetch = mockFetch as any
+
+			// Mock SDK to fail so it falls back to fetch
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.1",
+				reasoningEffort: "low" as any,
+			})
+
+			const messagesWithReasoningThenUser: any[] = [
+				{ role: "user", content: "Q1" },
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+				{ role: "user", content: "Q2" },
+			]
+
+			const systemPrompt = "You are a helpful assistant."
+			const stream = handler.createMessage(systemPrompt, messagesWithReasoningThenUser as any)
+			for await (const _ of stream) {
+				// drain
+			}
+
+			const requestBody = JSON.parse((mockFetch.mock.calls[0][1] as any).body)
+			expect(requestBody.input).toEqual([
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q1" }],
+				},
+				{ type: "reasoning", encrypted_content: "enc", id: "rs_prev" },
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: "" }],
+				},
+				{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: "Q2" }],
+				},
+			])
 		})
 
 		// New tests: ensure text.verbosity is omitted for models without supportsVerbosity

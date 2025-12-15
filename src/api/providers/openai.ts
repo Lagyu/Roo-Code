@@ -22,6 +22,7 @@ import { getModelParams } from "../transform/model-params"
 
 import { DEFAULT_HEADERS } from "./constants"
 import { BaseProvider } from "./base-provider"
+import { logProviderEvent, type ProviderLogStage } from "./provider-logger"
 import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata } from "../index"
 import { getApiRequestTimeout } from "./utils/timeout-config"
 import { handleOpenAIError } from "./utils/openai-error-handler"
@@ -33,6 +34,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 	protected options: ApiHandlerOptions
 	private client: OpenAI
 	private readonly providerName = "OpenAI"
+	private currentRequestLogId?: string
 
 	constructor(options: ApiHandlerOptions) {
 		super()
@@ -86,11 +88,28 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 		}
 	}
 
+	private createRequestLogId(metadata?: ApiHandlerCreateMessageMetadata): string {
+		const prefix = metadata?.taskId ? `task-${metadata.taskId}` : "req"
+		return `${prefix}-${Date.now().toString(36)}`
+	}
+
+	private logProvider(stage: ProviderLogStage, message: string, data?: unknown) {
+		logProviderEvent({
+			provider: "openai",
+			requestId: this.currentRequestLogId,
+			model: this.options.openAiModelId ?? this.getModel().id,
+			stage,
+			message,
+			data,
+		})
+	}
+
 	override async *createMessage(
 		systemPrompt: string,
 		messages: Anthropic.Messages.MessageParam[],
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
+		this.currentRequestLogId = this.createRequestLogId(metadata)
 		const { info: modelInfo, reasoning } = this.getModel()
 		const modelUrl = this.options.openAiBaseUrl ?? ""
 		const modelId = this.options.openAiModelId ?? ""
@@ -102,6 +121,8 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 
 		if (modelId.includes("o1") || modelId.includes("o3") || modelId.includes("o4")) {
 			yield* this.handleO3FamilyMessage(modelId, systemPrompt, messages, metadata)
+			this.logProvider("response", "chat.completions.create finished", { requestId: this.currentRequestLogId })
+			this.currentRequestLogId = undefined
 			return
 		}
 
@@ -180,6 +201,12 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			// Add max_tokens if needed
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
+			this.logProvider("request", "chat.completions.create (streaming)", {
+				baseUrl: modelUrl,
+				model: modelId,
+				options: requestOptions,
+			})
+
 			let stream
 			try {
 				stream = await this.client.chat.completions.create(
@@ -187,6 +214,10 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {},
 				)
 			} catch (error) {
+				this.logProvider("error", "chat.completions.create failed (streaming)", {
+					error,
+					baseUrl: modelUrl,
+				})
 				throw handleOpenAIError(error, this.providerName)
 			}
 
@@ -239,6 +270,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			}
 
 			if (lastUsage) {
+				this.logProvider("response", "Stream usage metrics", { usage: lastUsage })
 				yield this.processUsageMetrics(lastUsage, modelInfo)
 			}
 		} else {
@@ -259,6 +291,12 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			// Add max_tokens if needed
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
+			this.logProvider("request", "chat.completions.create (non-streaming)", {
+				baseUrl: modelUrl,
+				model: modelId,
+				options: requestOptions,
+			})
+
 			let response
 			try {
 				response = await this.client.chat.completions.create(
@@ -266,10 +304,18 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					this._isAzureAiInference(modelUrl) ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {},
 				)
 			} catch (error) {
+				this.logProvider("error", "chat.completions.create failed (non-streaming)", {
+					error,
+					baseUrl: modelUrl,
+				})
 				throw handleOpenAIError(error, this.providerName)
 			}
 
 			const message = response.choices?.[0]?.message
+			this.logProvider("response", "Non-streaming response received", {
+				usage: response.usage,
+				choiceCount: response.choices?.length,
+			})
 
 			if (message?.tool_calls) {
 				for (const toolCall of message.tool_calls) {
@@ -291,6 +337,9 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 
 			yield this.processUsageMetrics(response.usage, modelInfo)
 		}
+
+		this.logProvider("response", "chat.completions.create finished", { requestId: this.currentRequestLogId })
+		this.currentRequestLogId = undefined
 	}
 
 	protected processUsageMetrics(usage: any, _modelInfo?: ModelInfo): ApiStreamUsageChunk {
@@ -311,6 +360,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 	}
 
 	async completePrompt(prompt: string): Promise<string> {
+		this.currentRequestLogId = this.createRequestLogId()
 		try {
 			const isAzureAiInference = this._isAzureAiInference(this.options.openAiBaseUrl)
 			const model = this.getModel()
@@ -324,6 +374,12 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			// Add max_tokens if needed
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
+			this.logProvider("request", "chat.completions.create (completePrompt)", {
+				baseUrl: this.options.openAiBaseUrl,
+				model: model.id,
+				options: requestOptions,
+			})
+
 			let response
 			try {
 				response = await this.client.chat.completions.create(
@@ -331,16 +387,24 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {},
 				)
 			} catch (error) {
+				this.logProvider("error", "chat.completions.create failed (completePrompt)", { error })
 				throw handleOpenAIError(error, this.providerName)
 			}
 
+			this.logProvider("response", "Complete prompt response received", {
+				usage: response.usage,
+				choiceCount: response.choices?.length,
+			})
 			return response.choices?.[0]?.message.content || ""
 		} catch (error) {
+			this.logProvider("error", "Complete prompt failed", { error })
 			if (error instanceof Error) {
 				throw new Error(`${this.providerName} completion error: ${error.message}`)
 			}
 
 			throw error
+		} finally {
+			this.currentRequestLogId = undefined
 		}
 	}
 
@@ -381,6 +445,12 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			// This allows O3 models to limit response length when includeMaxTokens is enabled
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
+			this.logProvider("request", "chat.completions.create (o3 streaming)", {
+				baseUrl: this.options.openAiBaseUrl ?? "",
+				model: modelId,
+				options: requestOptions,
+			})
+
 			let stream
 			try {
 				stream = await this.client.chat.completions.create(
@@ -388,6 +458,10 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					methodIsAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {},
 				)
 			} catch (error) {
+				this.logProvider("error", "chat.completions.create failed (o3 streaming)", {
+					error,
+					baseUrl: this.options.openAiBaseUrl,
+				})
 				throw handleOpenAIError(error, this.providerName)
 			}
 
@@ -416,6 +490,12 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			// This allows O3 models to limit response length when includeMaxTokens is enabled
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
+			this.logProvider("request", "chat.completions.create (o3 non-streaming)", {
+				baseUrl: this.options.openAiBaseUrl ?? "",
+				model: modelId,
+				options: requestOptions,
+			})
+
 			let response
 			try {
 				response = await this.client.chat.completions.create(
@@ -423,6 +503,10 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					methodIsAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {},
 				)
 			} catch (error) {
+				this.logProvider("error", "chat.completions.create failed (o3 non-streaming)", {
+					error,
+					baseUrl: this.options.openAiBaseUrl,
+				})
 				throw handleOpenAIError(error, this.providerName)
 			}
 
@@ -475,6 +559,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 			}
 
 			if (chunk.usage) {
+				this.logProvider("response", "Streaming usage chunk", { usage: chunk.usage })
 				yield {
 					type: "usage",
 					inputTokens: chunk.usage.prompt_tokens || 0,
