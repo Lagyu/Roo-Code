@@ -66,6 +66,110 @@ function isNoKvSpaceError(error: unknown): boolean {
 	)
 }
 
+function getHeaderValue(headers: any, name: string): string | undefined {
+	if (!headers) return undefined
+	const lowerName = name.toLowerCase()
+
+	// Standard fetch Headers
+	if (typeof headers.get === "function") {
+		const val = headers.get(name) ?? headers.get(lowerName)
+		return typeof val === "string" && val.length > 0 ? val : undefined
+	}
+
+	// Plain object (common on SDK errors)
+	const direct = headers[name]
+	if (typeof direct === "string" && direct.length > 0) return direct
+	const lower = headers[lowerName]
+	if (typeof lower === "string" && lower.length > 0) return lower
+
+	return undefined
+}
+
+function getRetryAfterMs(headers: any): number | undefined {
+	const retryAfterMsHeader =
+		getHeaderValue(headers, "retry-after-ms") || getHeaderValue(headers, "x-ms-retry-after-ms")
+	if (retryAfterMsHeader) {
+		const ms = Number(retryAfterMsHeader)
+		if (Number.isFinite(ms) && ms > 0) return ms
+	}
+
+	const retryAfter = getHeaderValue(headers, "retry-after")
+	if (!retryAfter) return undefined
+
+	// Prefer delta seconds (most common).
+	const seconds = Number(retryAfter)
+	if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000
+
+	// Fallback: HTTP-date.
+	const dateMs = Date.parse(retryAfter)
+	if (!Number.isNaN(dateMs)) {
+		const deltaMs = dateMs - Date.now()
+		if (deltaMs > 0) return deltaMs
+	}
+
+	return undefined
+}
+
+function pickRateLimitHeaders(headers: any): Record<string, string> | undefined {
+	const headerNames = [
+		"retry-after",
+		"retry-after-ms",
+		"x-ms-retry-after-ms",
+		"x-ms-ratelimit-limit-requests",
+		"x-ms-ratelimit-remaining-requests",
+		"x-ms-ratelimit-reset-requests",
+		"x-ms-ratelimit-limit-tokens",
+		"x-ms-ratelimit-remaining-tokens",
+		"x-ms-ratelimit-reset-tokens",
+		"x-ratelimit-limit-requests",
+		"x-ratelimit-remaining-requests",
+		"x-ratelimit-reset-requests",
+		"x-ratelimit-limit-tokens",
+		"x-ratelimit-remaining-tokens",
+		"x-ratelimit-reset-tokens",
+		"x-ratelimit-limit-input-tokens",
+		"x-ratelimit-remaining-input-tokens",
+		"x-ratelimit-reset-input-tokens",
+		"x-ratelimit-limit-output-tokens",
+		"x-ratelimit-remaining-output-tokens",
+		"x-ratelimit-reset-output-tokens",
+		"x-request-id",
+		"openai-request-id",
+		"apim-request-id",
+		"x-ms-request-id",
+		"x-ms-region",
+	]
+
+	const out: Record<string, string> = {}
+	for (const name of headerNames) {
+		const val = getHeaderValue(headers, name)
+		if (val) out[name] = val
+	}
+	return Object.keys(out).length > 0 ? out : undefined
+}
+
+function extractErrorDiagnostics(err: any): Record<string, unknown> {
+	const status = err?.status ?? err?.response?.status
+	const requestId = err?.request_id ?? err?.requestId ?? err?.response?.request_id ?? undefined
+	const headers = pickRateLimitHeaders(err?.headers ?? err?.response?.headers)
+	const retryAfterMs = getRetryAfterMs(err?.headers ?? err?.response?.headers)
+	const code = err?.code ?? err?.error?.code
+	const type = err?.type ?? err?.error?.type
+	const param = err?.param ?? err?.error?.param
+
+	return {
+		name: err?.name,
+		message: err?.message,
+		status,
+		code,
+		type,
+		param,
+		requestId,
+		headers,
+		...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+	}
+}
+
 export class OpenAiNativeHandler extends BaseProvider implements SingleCompletionHandler {
 	protected options: ApiHandlerOptions
 	private client: OpenAI
@@ -125,7 +229,41 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					return hasVersion ? normalized : `${normalized}/v1`
 				})()
 			: undefined
-		this.client = new OpenAI({ baseURL: normalizedBaseUrl, apiKey })
+		this.client = new OpenAI({
+			baseURL: normalizedBaseUrl,
+			apiKey,
+			fetch: async (input: any, init?: any) => {
+				const url = typeof input === "string" ? input : input?.url
+				const method = init?.method || input?.method || "GET"
+				const startedAt = Date.now()
+
+				const res = await fetch(input as any, init as any)
+
+				// Best-effort structured logging for SDK HTTP responses to help diagnose throttling.
+				// Avoid logging request headers (API keys). Only log selected response headers.
+				try {
+					const retryAfterMs = getRetryAfterMs((res as any)?.headers)
+					this.logProvider(
+						"response",
+						"SDK HTTP response received",
+						{
+							method,
+							url,
+							status: (res as any)?.status,
+							ok: (res as any)?.ok,
+							durationMs: Date.now() - startedAt,
+							headers: pickRateLimitHeaders((res as any)?.headers),
+							...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+						},
+						this.getModel().id,
+					)
+				} catch {
+					// Never break requests due to logging failures.
+				}
+
+				return res as any
+			},
+		})
 	}
 
 	private getMaxOutputTokensForRequest(model: OpenAiNativeModel): number | undefined {
@@ -603,7 +741,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					}
 				}
 			} catch (iterErr) {
-				this.logProvider("error", "Streaming iterator failed", { error: iterErr }, model.id)
+				this.logProvider(
+					"error",
+					"Streaming iterator failed",
+					{ error: iterErr, diagnostics: extractErrorDiagnostics(iterErr) },
+					model.id,
+				)
 				// If terminal failure, propagate and do not attempt resume/poll
 				if (isTerminalBackgroundError(iterErr)) {
 					throw iterErr
@@ -622,7 +765,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw iterErr
 			}
 		} catch (sdkErr: any) {
-			this.logProvider("error", "SDK responses.create failed; trying SSE fallback", { error: sdkErr }, model.id)
+			this.logProvider(
+				"error",
+				"SDK responses.create failed; trying SSE fallback",
+				{ error: sdkErr, diagnostics: extractErrorDiagnostics(sdkErr) },
+				model.id,
+			)
 			// Propagate terminal background failures without fallback
 			if (isTerminalBackgroundError(sdkErr)) {
 				throw sdkErr
@@ -836,10 +984,18 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				signal: this.abortController.signal,
 			})
 
+			const responseHeaders = pickRateLimitHeaders(response.headers)
+			const retryAfterMs = getRetryAfterMs(response.headers)
+
 			this.logProvider(
 				"response",
 				"Responses API fetch completed",
-				{ status: response.status, ok: response.ok },
+				{
+					status: response.status,
+					ok: response.ok,
+					headers: responseHeaders,
+					...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+				},
 				model.id,
 			)
 
@@ -899,7 +1055,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				this.logProvider(
 					"error",
 					"Responses API returned error response",
-					{ status: response.status, details: errorDetails || errorMessage },
+					{
+						status: response.status,
+						details: errorDetails || errorMessage,
+						headers: responseHeaders,
+						...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+					},
 					model.id,
 				)
 
@@ -1271,6 +1432,26 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 								// Error event from the API
 								if (parsed.error || parsed.message) {
 									const errMsg = `Responses API error: ${parsed.error?.message || parsed.message || "Unknown error"}`
+									this.logProvider(
+										"error",
+										"Responses API stream error event",
+										{
+											eventType: parsed.type,
+											responseId: parsed.response?.id ?? this.currentRequestResponseId,
+											sequence_number: parsed.sequence_number,
+											error: parsed.error,
+											message: parsed.message,
+											errorCode: parsed.error?.code,
+											errorType: parsed.error?.type,
+											errorParam: parsed.error?.param,
+											errorStatus:
+												parsed.error?.status ??
+												parsed.error?.status_code ??
+												parsed.status ??
+												parsed.status_code,
+										},
+										model.id,
+									)
 									// For background mode, treat as terminal to avoid futile resume attempts
 									if (this.currentRequestIsBackground) {
 										// Surface a failed status for UI lifecycle before terminating
@@ -1504,17 +1685,24 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					},
 					signal: this.abortController?.signal,
 				})
+				const retryAfterMs = getRetryAfterMs(res.headers)
 
 				this.logProvider(
 					"response",
 					"Resume response received",
-					{ attempt: attempt + 1, status: res.status, ok: res.ok },
+					{
+						attempt: attempt + 1,
+						status: res.status,
+						ok: res.ok,
+						headers: pickRateLimitHeaders(res.headers),
+						...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+					},
 					model.id,
 				)
 
 				if (!res.ok) {
 					const status = res.status
-					if (status === 401 || status === 403 || status === 404) {
+					if (status === 401 || status === 403) {
 						yield {
 							type: "status",
 							mode: "background",
@@ -1522,6 +1710,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 							responseId,
 						}
 
+						const terminalErr = createTerminalBackgroundError(`Resume request failed (${status})`)
+						;(terminalErr as any).status = status
+						throw terminalErr
+					}
+					if (status === 404) {
+						// Some gateways may not support the resume streaming endpoint even when the
+						// stored response exists; fall back to polling instead of failing the request.
 						const terminalErr = createTerminalBackgroundError(`Resume request failed (${status})`)
 						;(terminalErr as any).status = status
 						throw terminalErr
@@ -1561,13 +1756,22 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				}
 			} catch (err: any) {
 				this.logProvider("error", "Resume attempt failed", { attempt: attempt + 1, error: err }, model.id)
-				// If terminal error, don't keep retrying resume; fall back to polling immediately
 				const delay = resumeBaseDelayMs * Math.pow(2, attempt)
 				const msg = err instanceof Error ? err.message : String(err)
 
 				if (isTerminalBackgroundError(err)) {
-					console.error(`[OpenAiNative][resume] terminal background error on attempt ${attempt + 1}: ${msg}`)
-					break
+					const statusCode = (err as any).status
+					console.error(
+						`[OpenAiNative][resume] terminal background error on attempt ${attempt + 1}${
+							statusCode ? ` (status ${statusCode})` : ""
+						}: ${msg}`,
+					)
+					// Only fall back to polling when resume is unsupported (404). Otherwise, surface the terminal error
+					// so we don't add additional requests (polling) when the response is already failed.
+					if (statusCode === 404) {
+						break
+					}
+					throw err
 				}
 
 				// Otherwise retry with backoff (transient failure)
@@ -1590,10 +1794,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		const pollIntervalMs = this.options.openAiNativeBackgroundPollIntervalMs ?? 2000
 		const pollMaxMinutes = this.options.openAiNativeBackgroundPollMaxMinutes ?? 20
 		const deadline = Date.now() + pollMaxMinutes * 60_000
+		const pollMaxIntervalMs = Math.max(pollIntervalMs, 30_000)
+		const pollBackoffFactor = 1.5
 
 		let lastEmittedStatus: "queued" | "in_progress" | "completed" | "failed" | "canceled" | undefined = undefined
 		let pollCount = 0
 		let lastPolledStatus: number | undefined
+		let nextPollDelayMs = pollIntervalMs
 
 		while (Date.now() <= deadline) {
 			try {
@@ -1607,10 +1814,17 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				})
 
 				if (!pollRes.ok) {
+					const retryAfterMs = getRetryAfterMs(pollRes.headers)
 					this.logProvider(
 						"error",
 						"Polling response not ok",
-						{ status: pollRes.status, pollCount, responseId },
+						{
+							status: pollRes.status,
+							pollCount,
+							responseId,
+							headers: pickRateLimitHeaders(pollRes.headers),
+							...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+						},
 						model.id,
 					)
 					const status = pollRes.status
@@ -1626,8 +1840,12 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						throw terminalErr
 					}
 
-					// transient; wait and retry
-					await new Promise((r) => setTimeout(r, pollIntervalMs))
+					// transient; back off and retry
+					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+					if (typeof retryAfterMs === "number") {
+						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.max(nextPollDelayMs, retryAfterMs))
+					}
+					await new Promise((r) => setTimeout(r, nextPollDelayMs))
 					continue
 				}
 
@@ -1635,7 +1853,8 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				try {
 					raw = await pollRes.json()
 				} catch {
-					await new Promise((r) => setTimeout(r, pollIntervalMs))
+					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+					await new Promise((r) => setTimeout(r, nextPollDelayMs))
 					continue
 				}
 
@@ -1659,6 +1878,8 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						status === "canceled")
 				) {
 					if (status !== lastEmittedStatus) {
+						// Reset polling cadence when the response status changes.
+						nextPollDelayMs = pollIntervalMs
 						if (shouldLogStatus) {
 							this.logProvider(
 								"status",
@@ -1675,6 +1896,9 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						}
 						lastEmittedStatus = status as any
 						lastPolledStatus = pollRes.status
+					} else if (status === "queued" || status === "in_progress") {
+						// Status unchanged: progressively reduce request volume.
+						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
 					}
 				}
 
@@ -1749,6 +1973,9 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						`[OpenAiNative][poll] transient error; will retry${statusCode ? ` (status ${statusCode})` : ""}: ${msg}`,
 					)
 				}
+
+				// Back off on transient polling errors (including rate limits) to avoid making throttling worse.
+				nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
 			}
 
 			// Stop polling immediately on terminal background statuses
@@ -1756,7 +1983,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw new Error(`Background polling terminated with status=${lastEmittedStatus} for ${responseId}`)
 			}
 
-			await new Promise((r) => setTimeout(r, pollIntervalMs))
+			await new Promise((r) => setTimeout(r, nextPollDelayMs))
 		}
 
 		this.logProvider("error", "Background response polling timed out", { responseId, pollCount }, model.id)
@@ -1786,6 +2013,41 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			this.lastSequenceNumber = event.sequence_number
 			// Also track for per-request resume capability
 			this.currentRequestSequenceNumber = event.sequence_number
+		}
+
+		// Handle explicit error events emitted in-stream by the API/SDK.
+		// Treat background-mode errors as terminal to avoid futile resume/poll fallbacks.
+		if (event?.type === "response.error" || event?.type === "error") {
+			const errMsg = `Responses API error: ${event?.error?.message || event?.message || "Unknown error"}`
+			this.logProvider(
+				"error",
+				"Streaming error event",
+				{
+					eventType: event?.type,
+					responseId: event?.response?.id ?? this.currentRequestResponseId,
+					sequence: event?.sequence_number,
+					error: event?.error,
+					message: event?.message,
+					errorCode: event?.error?.code,
+					errorType: event?.error?.type,
+					errorParam: event?.error?.param,
+					errorStatus:
+						event?.error?.status ?? event?.error?.status_code ?? event?.status ?? event?.status_code,
+				},
+				model.id,
+			)
+
+			if (this.currentRequestIsBackground) {
+				yield {
+					type: "status",
+					mode: "background",
+					status: "failed",
+					...(event?.response?.id ? { responseId: event.response.id } : {}),
+				}
+				throw createTerminalBackgroundError(errMsg)
+			}
+
+			throw new Error(errMsg)
 		}
 
 		// Map lifecycle events to status chunks

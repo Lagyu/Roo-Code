@@ -2221,6 +2221,136 @@ describe("OpenAI Native background auto-resume and polling", () => {
 		expect(usageChunks).toHaveLength(1)
 	})
 
+	it("does not fall back to polling when resume returns a terminal response error", async () => {
+		const handler = new OpenAiNativeHandler({
+			apiModelId: "gpt-5-pro-2025-10-06",
+			openAiNativeApiKey: "test",
+			openAiNativeBackgroundMode: true,
+			openAiNativeBackgroundResumeMaxRetries: 1,
+			openAiNativeBackgroundResumeBaseDelayMs: 0,
+			openAiNativeBackgroundPollIntervalMs: 1,
+			openAiNativeBackgroundPollMaxMinutes: 1,
+		} as ApiHandlerOptions)
+
+		const dropIterable = {
+			async *[Symbol.asyncIterator]() {
+				yield { type: "response.queued", response: { id: "resp_term" }, sequence_number: 0 }
+				yield { type: "response.in_progress", sequence_number: 1 }
+				throw new Error("network drop")
+			},
+		}
+		mockResponsesCreate.mockResolvedValueOnce(dropIterable as any)
+
+		const encoder = new TextEncoder()
+		const createErrorStream = () =>
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(
+						encoder.encode('data: {"type":"response.error","error":{"message":"Too Many Requests"}}\n\n'),
+					)
+					controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+					controller.close()
+				},
+			})
+
+		const mockFetch = vitest.fn().mockImplementation((url: string) => {
+			if (url.includes("?stream=true")) {
+				return Promise.resolve(
+					new Response(createErrorStream(), {
+						status: 200,
+						headers: { "Content-Type": "text/event-stream" },
+					}),
+				)
+			}
+			// If polling happens, return a quick terminal status so the test fails fast.
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ response: { id: "resp_term", status: "failed", error: { message: "polled" } } }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+		})
+		;(global as any).fetch = mockFetch
+
+		const stream = handler.createMessage(systemPrompt, messages)
+		const chunks: any[] = []
+		let thrown: any
+		try {
+			for await (const c of stream) {
+				chunks.push(c)
+			}
+		} catch (e) {
+			thrown = e
+		}
+
+		expect(thrown).toBeInstanceOf(Error)
+		expect((thrown as any).name).toBe("TerminalBackgroundError")
+		expect((thrown as Error).message).toContain("Responses API error: Too Many Requests")
+
+		const statusNames = chunks.filter((c) => c.type === "status").map((s: any) => s.status)
+		expect(statusNames).toContain("reconnecting")
+		expect(statusNames).toContain("failed")
+		expect(statusNames).not.toContain("polling")
+
+		// Only resume request should be made.
+		expect(mockFetch).toHaveBeenCalledTimes(1)
+	})
+
+	it("does not attempt resume/poll when the SDK stream emits a terminal error event", async () => {
+		const handler = new OpenAiNativeHandler({
+			apiModelId: "gpt-5-pro-2025-10-06",
+			openAiNativeApiKey: "test",
+			openAiNativeBackgroundMode: true,
+			openAiNativeBackgroundResumeMaxRetries: 1,
+			openAiNativeBackgroundResumeBaseDelayMs: 0,
+			openAiNativeBackgroundPollIntervalMs: 1,
+			openAiNativeBackgroundPollMaxMinutes: 1,
+		} as ApiHandlerOptions)
+
+		const iterableWithErrorEvent = {
+			async *[Symbol.asyncIterator]() {
+				yield { type: "response.queued", response: { id: "resp_err" }, sequence_number: 0 }
+				yield { type: "response.in_progress", response: { id: "resp_err" }, sequence_number: 1 }
+				yield {
+					type: "response.error",
+					response: { id: "resp_err" },
+					sequence_number: 2,
+					error: { type: "too_many_requests", message: "Too Many Requests" },
+				}
+			},
+		}
+		mockResponsesCreate.mockResolvedValueOnce(iterableWithErrorEvent as any)
+
+		const mockFetch = vitest.fn()
+		;(global as any).fetch = mockFetch
+
+		const stream = handler.createMessage(systemPrompt, messages)
+		const chunks: any[] = []
+		let thrown: any
+		try {
+			for await (const c of stream) {
+				chunks.push(c)
+			}
+		} catch (e) {
+			thrown = e
+		}
+
+		expect(thrown).toBeInstanceOf(Error)
+		expect((thrown as any).name).toBe("TerminalBackgroundError")
+		expect((thrown as Error).message).toContain("Responses API error: Too Many Requests")
+
+		const statusNames = chunks.filter((c) => c.type === "status").map((s: any) => s.status)
+		expect(statusNames).toContain("queued")
+		expect(statusNames).toContain("in_progress")
+		expect(statusNames).toContain("failed")
+
+		// No resume/poll fetches should occur.
+		expect(mockFetch).toHaveBeenCalledTimes(0)
+	})
+
 	it("falls back to polling after failed resume and yields final output/usage", async () => {
 		const handler = new OpenAiNativeHandler({
 			apiModelId: "gpt-5-pro-2025-10-06",
