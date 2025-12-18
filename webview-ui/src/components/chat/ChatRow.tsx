@@ -1119,8 +1119,18 @@ export const ChatRowContent = ({
 					let body = t(`chat:apiRequest.failed`)
 					let retryInfo, rawError, code, docsURL
 					if (message.text !== undefined) {
+						// This isn't pretty, but since the retry logic happens at a lower level
+						// and the message object is just a flat string, we need to extract the
+						// retry information using this "tag" as a convention
+						const retryTimerMatch = message.text.match(/<retry_timer>(.*?)<\/retry_timer>/)
+						const retryTimer = retryTimerMatch && retryTimerMatch[1] ? parseInt(retryTimerMatch[1], 10) : 0
+						rawError = message.text.replace(/<retry_timer>(.*?)<\/retry_timer>/, "").trim()
+
+						const rawLower = rawError.toLowerCase()
+
 						// Try to show richer error message for that code, if available
-						const potentialCode = parseInt(message.text.substring(0, 3))
+						const codeMatch = rawError.match(/^(\d{3})\b/)
+						const potentialCode = codeMatch ? parseInt(codeMatch[1], 10) : NaN
 						if (!isNaN(potentialCode) && potentialCode >= 400) {
 							code = potentialCode
 							const stringForError = `chat:apiRequest.errorMessage.${code}`
@@ -1137,20 +1147,26 @@ export const ChatRowContent = ({
 								body = t("chat:apiRequest.errorMessage.unknown")
 								docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 							}
-						} else if (message.text.indexOf("Connection error") === 0) {
+						} else if (rawLower.startsWith("connection error")) {
 							body = t("chat:apiRequest.errorMessage.connection")
+						} else if (
+							rawLower.includes("too many requests") ||
+							rawLower.includes("rate limit") ||
+							rawLower.includes("rate_limit") ||
+							rawLower.includes("throttl")
+						) {
+							// Some providers (notably Azure background polling) surface throttling as HTTP 200 + body error.
+							// Avoid showing an HTTP 429 code in the UI when the underlying HTTP status isn't 429.
+							body = t("chat:apiRequest.errorMessage.429")
+						} else if (rawLower.startsWith("rate limiting for")) {
+							// Provider-level client rate limiting countdown (not an API failure)
+							body = rawError
 						} else {
 							// Non-HTTP-status-code error message - store full text as errorDetails
 							body = t("chat:apiRequest.errorMessage.unknown")
 							docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 						}
 
-						// This isn't pretty, but since the retry logic happens at a lower level
-						// and the message object is just a flat string, we need to extract the
-						// retry information using this "tag" as a convention
-						const retryTimerMatch = message.text.match(/<retry_timer>(.*?)<\/retry_timer>/)
-						const retryTimer = retryTimerMatch && retryTimerMatch[1] ? parseInt(retryTimerMatch[1], 10) : 0
-						rawError = message.text.replace(/<retry_timer>(.*?)<\/retry_timer>/, "").trim()
 						retryInfo = retryTimer > 0 && (
 							<p
 								className={cn(

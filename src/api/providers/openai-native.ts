@@ -1655,7 +1655,11 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				if (status === "failed" || status === "canceled") {
 					const errorObj = resp?.error ?? raw?.error
 					const detail: string | undefined = errorObj?.message ?? resp?.error?.message ?? raw?.error?.message
-					const msg = detail ? `Response ${status}: ${detail}` : `Response ${status}: ${respId || responseId}`
+					const httpStatus = pollRes.status
+					const httpSuffix = typeof httpStatus === "number" ? ` (HTTP ${httpStatus})` : ""
+					const msg = detail
+						? `Response ${status}${httpSuffix}: ${detail}`
+						: `Response ${status}${httpSuffix}: ${respId || responseId}`
 
 					try {
 						this.logProvider(
@@ -1679,32 +1683,22 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					}
 
 					const terminalErr = createTerminalBackgroundError(msg)
-					const maybeStatus =
-						typeof errorObj?.status === "number"
-							? (errorObj.status as number)
-							: typeof errorObj?.status_code === "number"
-								? (errorObj.status_code as number)
-								: typeof errorObj?.http_status === "number"
-									? (errorObj.http_status as number)
-									: undefined
 					const lowerDetail = typeof detail === "string" ? detail.toLowerCase() : ""
 					const lowerType = typeof errorObj?.type === "string" ? errorObj.type.toLowerCase() : ""
 					const lowerCode = typeof errorObj?.code === "string" ? errorObj.code.toLowerCase() : ""
-					const inferredStatus =
-						maybeStatus ||
-						(lowerDetail.includes("too many requests") ||
+					const isRateLimitLike =
+						lowerDetail.includes("too many requests") ||
 						lowerDetail.includes("rate limit") ||
 						lowerType.includes("rate_limit") ||
 						lowerCode.includes("rate_limit")
-							? 429
-							: undefined)
-					if (typeof inferredStatus === "number") {
-						;(terminalErr as any).status = inferredStatus
-					}
+					;(terminalErr as any).httpStatus = pollRes.status
+					;(terminalErr as any).apiErrorCode = typeof errorObj?.code === "string" ? errorObj.code : undefined
+					;(terminalErr as any).apiErrorType = typeof errorObj?.type === "string" ? errorObj.type : undefined
+					;(terminalErr as any).isRateLimit = isRateLimitLike
 
 					// Some gateways (notably Azure) can return HTTP 200 but a terminal error indicating throttling.
-					// When we infer a 429, log the full raw poll response (headers + body) for debugging.
-					if (inferredStatus === 429) {
+					// When we see a throttling-like terminal status, log the full raw poll response (headers + body) for debugging.
+					if (isRateLimitLike) {
 						try {
 							let rawBodyText = ""
 							try {
