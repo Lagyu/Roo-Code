@@ -2406,6 +2406,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				let assistantMessage = ""
 				let reasoningMessage = ""
 				let pendingGroundingSources: GroundingSource[] = []
+				const chunkCounts: Record<string, number> = {}
 				this.isStreaming = true
 
 				try {
@@ -2437,16 +2438,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					let item = await nextChunkWithAbort()
 					while (!item.done) {
 						const chunk = item.value
-						item = await nextChunkWithAbort()
 						if (!chunk) {
 							// Sometimes chunk is undefined, no idea that can cause
 							// it, but this workaround seems to fix it.
-							item = await iterator.next()
+							item = await nextChunkWithAbort()
 							continue
 						}
 
 						switch (chunk.type) {
 							case "reasoning": {
+								chunkCounts.reasoning = (chunkCounts.reasoning ?? 0) + 1
 								reasoningMessage += chunk.text
 								// Only apply formatting if the message contains sentence-ending punctuation followed by **
 								let formattedReasoning = reasoningMessage
@@ -2463,6 +2464,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								break
 							}
 							case "usage":
+								chunkCounts.usage = (chunkCounts.usage ?? 0) + 1
 								inputTokens += chunk.inputTokens
 								outputTokens += chunk.outputTokens
 								cacheWriteTokens += chunk.cacheWriteTokens ?? 0
@@ -2470,6 +2472,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								totalCost = chunk.totalCost
 								break
 							case "grounding":
+								chunkCounts.grounding = (chunkCounts.grounding ?? 0) + 1
 								// Handle grounding sources separately from regular content
 								// to prevent state persistence issues - store them separately
 								if (chunk.sources && chunk.sources.length > 0) {
@@ -2477,6 +2480,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								}
 								break
 							case "tool_call_partial": {
+								chunkCounts.tool_call_partial = (chunkCounts.tool_call_partial ?? 0) + 1
 								// Process raw tool call chunk through NativeToolCallParser
 								// which handles tracking, buffering, and emits events
 								const events = NativeToolCallParser.processRawChunk({
@@ -2589,6 +2593,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 							}
 
 							case "tool_call": {
+								chunkCounts.tool_call = (chunkCounts.tool_call ?? 0) + 1
 								// Legacy: Handle complete tool calls (for backward compatibility)
 								// Convert native tool call to ToolUse format
 								const toolUse = NativeToolCallParser.parseToolCall({
@@ -2619,6 +2624,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 							}
 
 							case "status": {
+								chunkCounts.status = (chunkCounts.status ?? 0) + 1
 								try {
 									const apiReqMsg = this.clineMessages[lastApiReqIndex]
 									if (apiReqMsg && apiReqMsg.type === "say" && apiReqMsg.say === "api_req_started") {
@@ -2637,6 +2643,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								break
 							}
 							case "text": {
+								chunkCounts.text = (chunkCounts.text ?? 0) + 1
 								assistantMessage += chunk.text
 
 								// Use the protocol determined at the start of streaming
@@ -2678,6 +2685,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								}
 								break
 							}
+							default: {
+								chunkCounts.other = (chunkCounts.other ?? 0) + 1
+								break
+							}
 						}
 
 						if (this.abort) {
@@ -2710,10 +2721,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								"\n\n[Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]"
 							break
 						}
-						// Prefetch the next item after processing the current chunk.
-						// This ensures terminal status chunks (e.g., failed/canceled/completed)
-						// are not skipped when the provider throws on the following next().
-						item = await iterator.next()
+
+						// Fetch next chunk after processing current one so we don't drop the current chunk
+						// if the iterator throws on the next read.
+						item = await nextChunkWithAbort()
 					}
 
 					// Finalize any remaining streaming tool calls that weren't explicitly ended
@@ -3200,6 +3211,27 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					// Prefer any streaming failure details captured on the last api_req_started message.
 					let errorText =
 						"Unexpected API Response: The language model did not provide any assistant messages. This may indicate an issue with the API or the model's output."
+					try {
+						const apiReqMsg = this.clineMessages[lastApiReqIndex]
+						const apiReqMetadata =
+							apiReqMsg && apiReqMsg.type === "say" ? (apiReqMsg as any).metadata : undefined
+						const assistantBlockTypes = this.assistantMessageContent
+							.map((b: any) => (b && typeof b === "object" ? b.type : typeof b))
+							.filter(Boolean)
+						const partialBlocks = this.assistantMessageContent.filter((b: any) => b?.partial)
+
+						console.warn(`[Task#${this.taskId}.${this.instanceId}] empty assistant response`, {
+							assistantMessageLength: assistantMessage.length,
+							reasoningMessageLength: reasoningMessage.length,
+							assistantBlocks: this.assistantMessageContent.length,
+							assistantBlockTypes,
+							partialBlocks: partialBlocks.length,
+							chunkCounts,
+							apiReqMetadata,
+						})
+					} catch {
+						// Never break retry/ask flows due to logging failures.
+					}
 					try {
 						const lastApiReqStartedIdx = findLastIndex(
 							this.clineMessages,

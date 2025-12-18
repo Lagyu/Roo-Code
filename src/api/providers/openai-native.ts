@@ -52,6 +52,10 @@ function isAzureOpenAiBaseUrl(baseUrl?: string): boolean {
 	return baseUrl.toLowerCase().includes(".openai.azure.com")
 }
 
+function isGpt5ProModel(modelId: string): boolean {
+	return modelId.startsWith("gpt-5-pro")
+}
+
 function isNoKvSpaceError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error)
 	const lower = message.toLowerCase()
@@ -148,10 +152,77 @@ function pickRateLimitHeaders(headers: any): Record<string, string> | undefined 
 	return Object.keys(out).length > 0 ? out : undefined
 }
 
+function listHeaderKeys(headers: any): string[] | undefined {
+	if (!headers) return undefined
+	try {
+		const keys: string[] = []
+
+		if (typeof headers.keys === "function") {
+			for (const key of headers.keys()) {
+				keys.push(String(key))
+			}
+		} else if (typeof headers.forEach === "function") {
+			headers.forEach((_value: any, key: string) => {
+				keys.push(String(key))
+			})
+		} else if (typeof headers === "object") {
+			keys.push(...Object.keys(headers))
+		}
+
+		const deduped = Array.from(new Set(keys))
+		deduped.sort()
+		return deduped
+	} catch {
+		return undefined
+	}
+}
+
+function headersToObject(headers: any): Record<string, string> | undefined {
+	if (!headers) return undefined
+	try {
+		const out: Record<string, string> = {}
+
+		// Standard fetch Headers
+		if (typeof headers.forEach === "function") {
+			headers.forEach((value: any, key: string) => {
+				if (value === undefined || value === null) return
+				out[String(key)] = String(value)
+			})
+		} else if (typeof headers.entries === "function") {
+			for (const entry of headers.entries()) {
+				const [key, value] = entry as any
+				if (value === undefined || value === null) continue
+				out[String(key)] = String(value)
+			}
+		} else if (typeof headers === "object") {
+			for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+				if (value === undefined || value === null) continue
+				out[String(key)] = Array.isArray(value) ? value.map((v) => String(v)).join(", ") : String(value)
+			}
+		}
+
+		return Object.keys(out).length > 0 ? out : undefined
+	} catch {
+		return undefined
+	}
+}
+
+// Provider logs sanitize/truncate long strings; chunk to preserve full raw payloads for debugging.
+const PROVIDER_LOG_STRING_CHUNK_SIZE = 300
+function chunkStringForProviderLog(value: string): string[] {
+	if (!value) return [""]
+	const out: string[] = []
+	for (let i = 0; i < value.length; i += PROVIDER_LOG_STRING_CHUNK_SIZE) {
+		out.push(value.slice(i, i + PROVIDER_LOG_STRING_CHUNK_SIZE))
+	}
+	return out
+}
+
 function extractErrorDiagnostics(err: any): Record<string, unknown> {
 	const status = err?.status ?? err?.response?.status
 	const requestId = err?.request_id ?? err?.requestId ?? err?.response?.request_id ?? undefined
 	const headers = pickRateLimitHeaders(err?.headers ?? err?.response?.headers)
+	const headerKeys = listHeaderKeys(err?.headers ?? err?.response?.headers)
 	const retryAfterMs = getRetryAfterMs(err?.headers ?? err?.response?.headers)
 	const code = err?.code ?? err?.error?.code
 	const type = err?.type ?? err?.error?.type
@@ -166,6 +237,7 @@ function extractErrorDiagnostics(err: any): Record<string, unknown> {
 		param,
 		requestId,
 		headers,
+		headerKeys,
 		...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
 	}
 }
@@ -243,6 +315,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				// Avoid logging request headers (API keys). Only log selected response headers.
 				try {
 					const retryAfterMs = getRetryAfterMs((res as any)?.headers)
+					const headerKeys = listHeaderKeys((res as any)?.headers)
 					this.logProvider(
 						"response",
 						"SDK HTTP response received",
@@ -253,10 +326,48 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 							ok: (res as any)?.ok,
 							durationMs: Date.now() - startedAt,
 							headers: pickRateLimitHeaders((res as any)?.headers),
+							headerKeys,
 							...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
 						},
 						this.getModel().id,
 					)
+				} catch {
+					// Never break requests due to logging failures.
+				}
+
+				// If we hit a 429, log the raw HTTP response (headers + body) for debugging.
+				// Use Response.clone() so we don't consume the body the SDK needs.
+				try {
+					if ((res as any)?.status === 429) {
+						let bodyText: string | undefined
+						try {
+							bodyText =
+								typeof (res as any)?.clone === "function"
+									? await (res as any).clone().text()
+									: undefined
+						} catch {
+							bodyText = undefined
+						}
+						this.logProvider(
+							"error",
+							"SDK HTTP 429 response (raw)",
+							{
+								method,
+								url,
+								status: (res as any)?.status,
+								statusText: (res as any)?.statusText,
+								headers: headersToObject((res as any)?.headers),
+								headerKeys: listHeaderKeys((res as any)?.headers),
+								...(typeof bodyText === "string"
+									? {
+											bodyTextLength: bodyText.length,
+											bodyTextChunks: chunkStringForProviderLog(bodyText),
+										}
+									: {}),
+							},
+							this.getModel().id,
+						)
+					}
 				} catch {
 					// Never break requests due to logging failures.
 				}
@@ -666,8 +777,14 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 		// Enable background mode when either explicitly opted in or required by model metadata
 		if (this.options.openAiNativeBackgroundMode === true || model.info.backgroundMode === true) {
+			// Azure OpenAI gateways commonly enforce aggressive idle timeouts on long-lived SSE streams.
+			// For long-running background requests (notably gpt-5-pro), prefer background + polling (stream:false)
+			// to avoid repeated 408s during resume attempts.
+			const disableBackgroundStreaming =
+				model.info.backgroundMode === true && isAzureOpenAiBaseUrl(this.options.openAiNativeBaseUrl)
+
 			body.background = true
-			body.stream = true
+			body.stream = disableBackgroundStreaming ? false : true
 			body.store = true
 		}
 
@@ -713,21 +830,32 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 		try {
 			// Use the official SDK
-			const stream = (await (this.client as any).responses.create(requestBody, {
+			const result = await (this.client as any).responses.create(requestBody, {
 				signal: this.abortController.signal,
-			})) as AsyncIterable<any>
+			})
 
-			if (typeof (stream as any)[Symbol.asyncIterator] !== "function") {
+			const isAsyncIterable = (value: any): value is AsyncIterable<any> =>
+				!!value && typeof value[Symbol.asyncIterator] === "function"
+
+			// Non-streaming background requests (stream:false) return a response object; poll until terminal.
+			if (!isAsyncIterable(result)) {
+				if (requestBody?.stream === false) {
+					yield* this.handleNonStreamingApiResponse(result, requestBody, model)
+					return
+				}
+
 				this.logProvider(
 					"error",
 					"SDK returned non-iterable stream; falling back to SSE",
-					{ responseType: typeof stream },
+					{ responseType: typeof result },
 					model.id,
 				)
 				throw new Error(
 					"OpenAI SDK did not return an AsyncIterable for Responses API streaming. Falling back to SSE.",
 				)
 			}
+
+			const stream = result
 
 			try {
 				for await (const event of stream) {
@@ -765,16 +893,22 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw iterErr
 			}
 		} catch (sdkErr: any) {
+			// Terminal background failures should not trigger fallback logic (and are not SDK errors).
+			if (isTerminalBackgroundError(sdkErr)) {
+				this.logProvider(
+					"error",
+					"Background request failed (terminal)",
+					{ error: sdkErr, diagnostics: extractErrorDiagnostics(sdkErr) },
+					model.id,
+				)
+				throw sdkErr
+			}
 			this.logProvider(
 				"error",
 				"SDK responses.create failed; trying SSE fallback",
 				{ error: sdkErr, diagnostics: extractErrorDiagnostics(sdkErr) },
 				model.id,
 			)
-			// Propagate terminal background failures without fallback
-			if (isTerminalBackgroundError(sdkErr)) {
-				throw sdkErr
-			}
 			// For errors, fallback to manual SSE via fetch
 			try {
 				yield* this.makeResponsesApiRequest(requestBody, model, metadata, systemPrompt, messages)
@@ -957,6 +1091,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 	): ApiStream {
 		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
 		const url = this.buildResponsesUrl("responses")
+		const isStreamingRequest = requestBody?.stream !== false
 
 		// Create AbortController for cancellation
 		this.abortController = new AbortController()
@@ -964,10 +1099,11 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		try {
 			this.logProvider(
 				"request",
-				"POST /v1/responses (SSE fallback)",
+				"POST /v1/responses (fetch fallback)",
 				{
 					url,
 					background: requestBody?.background,
+					stream: isStreamingRequest,
 					body: requestBody,
 				},
 				model.id,
@@ -978,13 +1114,14 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${apiKey}`,
-					Accept: "text/event-stream",
+					Accept: isStreamingRequest ? "text/event-stream" : "application/json",
 				},
 				body: JSON.stringify(requestBody),
 				signal: this.abortController.signal,
 			})
 
 			const responseHeaders = pickRateLimitHeaders(response.headers)
+			const headerKeys = listHeaderKeys(response.headers)
 			const retryAfterMs = getRetryAfterMs(response.headers)
 
 			this.logProvider(
@@ -994,6 +1131,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 					status: response.status,
 					ok: response.ok,
 					headers: responseHeaders,
+					headerKeys,
 					...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
 				},
 				model.id,
@@ -1001,64 +1139,28 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 			if (!response.ok) {
 				const errorText = await response.text()
-
-				let errorMessage = `OpenAI Responses API request failed (${response.status})`
-				let errorDetails = ""
-
-				// Try to parse error as JSON for better error messages
-				try {
-					const errorJson = JSON.parse(errorText)
-					if (errorJson.error?.message) {
-						errorDetails = errorJson.error.message
-					} else if (errorJson.message) {
-						errorDetails = errorJson.message
-					} else {
-						errorDetails = errorText
-					}
-				} catch {
-					// If not JSON, use the raw text
-					errorDetails = errorText
-				}
-
-				// Provide user-friendly error messages based on status code
-				switch (response.status) {
-					case 400:
-						errorMessage = "Invalid request to Responses API. Please check your input parameters."
-						break
-					case 401:
-						errorMessage = "Authentication failed. Please check your OpenAI API key."
-						break
-					case 403:
-						errorMessage = "Access denied. Your API key may not have access to this endpoint."
-						break
-					case 404:
-						errorMessage =
-							"Responses API endpoint not found. The endpoint may not be available yet or requires a different configuration."
-						break
-					case 429:
-						errorMessage = "Rate limit exceeded. Please try again later."
-						break
-					case 500:
-					case 502:
-					case 503:
-						errorMessage = "OpenAI service error. Please try again later."
-						break
-					default:
-						errorMessage = `Responses API error (${response.status})`
-				}
-
-				// Append details if available
-				if (errorDetails) {
-					errorMessage += ` - ${errorDetails}`
-				}
+				const statusLine = `Responses API HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`
+				const errorMessage = [
+					statusLine,
+					responseHeaders ? `headers: ${JSON.stringify(responseHeaders)}` : "",
+					`body: ${errorText}`,
+				]
+					.filter(Boolean)
+					.join("\n")
 
 				this.logProvider(
 					"error",
 					"Responses API returned error response",
 					{
+						method: "POST",
+						url,
 						status: response.status,
-						details: errorDetails || errorMessage,
+						details: errorText,
 						headers: responseHeaders,
+						allHeaders: headersToObject(response.headers),
+						bodyTextLength: errorText.length,
+						bodyTextChunks: chunkStringForProviderLog(errorText),
+						headerKeys,
 						...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
 					},
 					model.id,
@@ -1067,18 +1169,36 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw new Error(errorMessage)
 			}
 
-			if (!response.body) {
+			if (isStreamingRequest) {
+				if (!response.body) {
+					this.logProvider(
+						"error",
+						"Responses API returned no response body",
+						{ status: response.status },
+						model.id,
+					)
+					throw new Error("Responses API error: No response body")
+				}
+
+				// Handle streaming response
+				yield* this.handleStreamResponse(response.body, model)
+				return
+			}
+
+			let json: any
+			try {
+				json = await response.json()
+			} catch {
 				this.logProvider(
 					"error",
-					"Responses API returned no response body",
+					"Responses API returned non-JSON response for non-streaming request",
 					{ status: response.status },
 					model.id,
 				)
-				throw new Error("Responses API error: No response body")
+				throw new Error("Responses API error: Non-JSON response for non-streaming request")
 			}
 
-			// Handle streaming response
-			yield* this.handleStreamResponse(response.body, model)
+			yield* this.handleNonStreamingApiResponse(json, requestBody, model)
 		} catch (error) {
 			this.logProvider("error", "Failed to connect to Responses API", { error }, model.id)
 			if (error instanceof Error) {
@@ -1090,10 +1210,579 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				throw new Error(`Failed to connect to Responses API: ${error.message}`)
 			}
 			// Handle non-Error objects
-			throw new Error(`Unexpected error connecting to Responses API`)
+			throw new Error("Unexpected error connecting to Responses API")
 		} finally {
 			this.abortController = undefined
 		}
+	}
+
+	private async *handleNonStreamingApiResponse(raw: any, requestBody: any, model: OpenAiNativeModel): ApiStream {
+		const resp = raw?.response ?? raw
+
+		// Capture resolved service tier if present
+		if (resp?.service_tier) {
+			this.lastServiceTier = resp.service_tier as ServiceTier
+		}
+		// Capture complete output array (includes reasoning items with encrypted_content)
+		if (Array.isArray(resp?.output)) {
+			this.lastResponseOutput = resp.output
+		}
+		// Capture top-level response id
+		if (typeof resp?.id === "string") {
+			this.lastResponseId = resp.id as string
+			this.currentRequestResponseId = resp.id as string
+		}
+
+		const status: string | undefined = resp?.status
+
+		// Background + polling: non-streaming create returns quickly with id/status, then we poll until terminal.
+		if (requestBody?.background) {
+			const responseId = (resp?.id ?? this.currentRequestResponseId) as string | undefined
+			if (!responseId) {
+				throw new Error("Background response missing id; cannot poll")
+			}
+
+			const knownStatus =
+				status === "queued" ||
+				status === "in_progress" ||
+				status === "completed" ||
+				status === "failed" ||
+				status === "canceled"
+					? (status as any)
+					: undefined
+
+			if (knownStatus) {
+				yield {
+					type: "status",
+					mode: "background",
+					status: knownStatus,
+					responseId,
+				}
+
+				if (knownStatus === "completed") {
+					yield* this.emitFinalResponseOutput(resp, raw, model)
+					return
+				}
+				if (knownStatus === "failed" || knownStatus === "canceled") {
+					const detail: string | undefined = resp?.error?.message ?? raw?.error?.message
+					throw createTerminalBackgroundError(
+						detail ? `Response ${knownStatus}: ${detail}` : `Response ${knownStatus}: ${responseId}`,
+					)
+				}
+			}
+
+			yield* this.pollBackgroundResponse(responseId, model, { lastEmittedStatus: knownStatus })
+			return
+		}
+
+		// Non-background non-streaming: treat as completed response and synthesize output/usage.
+		yield* this.emitFinalResponseOutput(resp, raw, model)
+	}
+
+	private async *emitFinalResponseOutput(resp: any, raw: any, model: OpenAiNativeModel): ApiStream {
+		const output = resp?.output ?? raw?.output
+		let emittedAssistantContent = false
+		let emittedTextChunks = 0
+		let emittedTextChars = 0
+		let emittedToolCalls = 0
+		const emittedToolCallNames: string[] = []
+		let emittedReasoningChars = 0
+		let usedOutputTextFallback = false
+		if (Array.isArray(output)) {
+			// Ensure lastResponseOutput is populated for continuity features (encrypted reasoning).
+			this.lastResponseOutput = output
+			for await (const chunk of this.emitOutputItems(output, model)) {
+				if (chunk.type === "text") {
+					emittedAssistantContent = true
+					emittedTextChunks += 1
+					emittedTextChars += chunk.text.length
+				} else if (chunk.type === "tool_call") {
+					emittedAssistantContent = true
+					emittedToolCalls += 1
+					if (typeof chunk.name === "string" && chunk.name.length > 0) {
+						emittedToolCallNames.push(chunk.name)
+					}
+				} else if (chunk.type === "reasoning") {
+					emittedReasoningChars += chunk.text.length
+				}
+				yield chunk
+			}
+		}
+
+		// Some gateways return only `output_text` on the terminal response (no `output` array).
+		// If we emit no assistant content (text/tool_call), fall back to the consolidated output_text.
+		if (!emittedAssistantContent) {
+			const outputText = resp?.output_text ?? raw?.output_text
+			if (typeof outputText === "string" && outputText.trim().length > 0) {
+				yield { type: "text", text: outputText }
+				emittedAssistantContent = true
+				usedOutputTextFallback = true
+				emittedTextChunks += 1
+				emittedTextChars += outputText.length
+			}
+		}
+
+		if (!emittedAssistantContent && (resp?.status === "completed" || raw?.status === "completed")) {
+			this.logProvider(
+				"error",
+				"Completed response contained no assistant output",
+				{
+					responseId: resp?.id ?? raw?.id ?? this.currentRequestResponseId,
+					hasOutputArray: Array.isArray(output),
+					outputArrayLength: Array.isArray(output) ? output.length : undefined,
+					hasOutputText: typeof (resp?.output_text ?? raw?.output_text) === "string",
+					outputTextLength:
+						typeof (resp?.output_text ?? raw?.output_text) === "string"
+							? String(resp?.output_text ?? raw?.output_text).length
+							: undefined,
+					keys: Object.keys(resp ?? raw ?? {}),
+				},
+				model.id,
+			)
+		}
+
+		// Final per-response emission summary (helps debug empty assistant output / retry loops).
+		try {
+			const outputText = resp?.output_text ?? raw?.output_text
+			const usage = resp?.usage ?? raw?.usage
+			const usageKeys = usage && typeof usage === "object" ? Object.keys(usage) : undefined
+			const outputItemTypes = Array.isArray(output)
+				? Array.from(
+						new Set(
+							output
+								.map((o: any) => (o && typeof o === "object" ? (o as any).type : undefined))
+								.filter((t: any) => typeof t === "string"),
+						),
+					)
+				: undefined
+			const toolCallNames = Array.from(new Set(emittedToolCallNames)).slice(0, 10)
+			this.logProvider(
+				"response",
+				"Final response output summary",
+				{
+					responseId: resp?.id ?? raw?.id ?? this.currentRequestResponseId ?? this.lastResponseId,
+					status: resp?.status ?? raw?.status,
+					outputArrayLength: Array.isArray(output) ? output.length : undefined,
+					outputItemTypes,
+					outputTextLength: typeof outputText === "string" ? outputText.length : undefined,
+					usageKeys,
+					emittedAssistantContent,
+					emittedTextChunks,
+					emittedTextChars,
+					emittedToolCalls,
+					toolCallNames,
+					emittedReasoningChars,
+					usedOutputTextFallback,
+				},
+				model.id,
+			)
+		} catch {
+			// Never break streaming due to logging failures.
+		}
+
+		const usage = resp?.usage ?? raw?.usage
+		const usageData = this.normalizeUsage(usage, model)
+		if (usageData) {
+			yield usageData
+		}
+	}
+
+	private async *emitOutputItems(output: any[], model: OpenAiNativeModel): ApiStream {
+		for (const outputItem of output) {
+			if (!outputItem || typeof outputItem !== "object") continue
+
+			// Some deployments return output items directly as { type: "output_text", text: "..." }.
+			if (outputItem.type === "output_text" && typeof (outputItem as any).text === "string") {
+				yield { type: "text", text: (outputItem as any).text }
+				continue
+			}
+
+			if (outputItem.type === "text" && Array.isArray(outputItem.content)) {
+				for (const content of outputItem.content) {
+					if (content?.type === "text" && typeof content.text === "string") {
+						yield { type: "text", text: content.text }
+					}
+				}
+				continue
+			}
+
+			if (outputItem.type === "message" && Array.isArray(outputItem.content)) {
+				for (const content of outputItem.content) {
+					if (
+						(content?.type === "output_text" || content?.type === "text") &&
+						typeof content.text === "string"
+					) {
+						yield { type: "text", text: content.text }
+					}
+				}
+				continue
+			}
+
+			if (outputItem.type === "reasoning" && Array.isArray(outputItem.summary)) {
+				for (const summary of outputItem.summary) {
+					if (summary?.type === "summary_text" && typeof summary.text === "string") {
+						yield { type: "reasoning", text: summary.text }
+					}
+				}
+				continue
+			}
+
+			// Non-streaming tool/function calls are delivered as complete output items.
+			if (outputItem.type === "function_call" || outputItem.type === "tool_call") {
+				const callId = outputItem.call_id || outputItem.tool_call_id || outputItem.id
+				if (!callId) continue
+
+				const args = outputItem.arguments || outputItem.function?.arguments || outputItem.function_arguments
+				yield {
+					type: "tool_call",
+					id: callId,
+					name: outputItem.name || outputItem.function?.name || outputItem.function_name || "",
+					arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}),
+				}
+				continue
+			}
+		}
+	}
+
+	private getBackgroundPollMaxMinutes(model: OpenAiNativeModel): number {
+		const configured = this.options.openAiNativeBackgroundPollMaxMinutes
+		if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
+			return configured
+		}
+		// gpt-5-pro is expected to take much longer than typical models.
+		if (isGpt5ProModel(model.id)) return 60
+		return 20
+	}
+
+	private async *pollBackgroundResponse(
+		responseId: string,
+		model: OpenAiNativeModel,
+		options?: { lastEmittedStatus?: "queued" | "in_progress" | "completed" | "failed" | "canceled" },
+	): ApiStream {
+		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
+		const pollIntervalMs = this.options.openAiNativeBackgroundPollIntervalMs ?? 2000
+		const pollMaxMinutes = this.getBackgroundPollMaxMinutes(model)
+		const deadline = Date.now() + pollMaxMinutes * 60_000
+		const pollMaxIntervalMs = Math.max(pollIntervalMs, 30_000)
+		const pollBackoffFactor = 1.5
+
+		let lastEmittedStatus = options?.lastEmittedStatus
+		let pollCount = 0
+		let lastPolledStatus: number | undefined
+		let nextPollDelayMs = pollIntervalMs
+
+		while (Date.now() <= deadline) {
+			if (this.abortController?.signal.aborted) {
+				yield { type: "status", mode: "background", status: "canceled", responseId }
+				return
+			}
+
+			try {
+				pollCount += 1
+				const pollUrl = this.buildResponsesUrl(`responses/${responseId}`)
+				const pollRes = await fetch(pollUrl, {
+					method: "GET",
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+					},
+					signal: this.abortController?.signal,
+				})
+
+				if (!pollRes.ok) {
+					let errorText: string | undefined
+					if (pollRes.status === 429) {
+						try {
+							errorText = await pollRes.text()
+						} catch {
+							errorText = undefined
+						}
+					}
+					const retryAfterMs = getRetryAfterMs(pollRes.headers)
+					const headerKeys = listHeaderKeys(pollRes.headers)
+					this.logProvider(
+						"error",
+						"Polling response not ok",
+						{
+							method: "GET",
+							url: pollUrl,
+							status: pollRes.status,
+							statusText: pollRes.statusText,
+							pollCount,
+							responseId,
+							headers: pickRateLimitHeaders(pollRes.headers),
+							allHeaders: headersToObject(pollRes.headers),
+							headerKeys,
+							...(typeof errorText === "string"
+								? {
+										bodyTextLength: errorText.length,
+										bodyTextChunks: chunkStringForProviderLog(errorText),
+									}
+								: {}),
+							...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
+						},
+						model.id,
+					)
+					const statusCode = pollRes.status
+					if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
+						yield { type: "status", mode: "background", status: "failed", responseId }
+						const terminalErr = createTerminalBackgroundError(`Polling failed with status ${statusCode}`)
+						;(terminalErr as any).status = statusCode
+						throw terminalErr
+					}
+
+					// transient; back off and retry
+					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+					if (typeof retryAfterMs === "number") {
+						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.max(nextPollDelayMs, retryAfterMs))
+					}
+					await new Promise((r) => setTimeout(r, nextPollDelayMs))
+					continue
+				}
+
+				let raw: any
+				try {
+					raw = await pollRes.json()
+				} catch {
+					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+					await new Promise((r) => setTimeout(r, nextPollDelayMs))
+					continue
+				}
+
+				const resp = raw?.response ?? raw
+				const status: string | undefined = resp?.status
+				const respId: string | undefined = resp?.id ?? responseId
+				const shouldLogStatus = status !== lastEmittedStatus || pollRes.status !== lastPolledStatus
+				const pollHeaders = pickRateLimitHeaders(pollRes.headers)
+				const pollHeaderKeys = listHeaderKeys(pollRes.headers)
+				const pollRetryAfterMs = getRetryAfterMs(pollRes.headers)
+
+				// Capture resolved service tier if present
+				if (resp?.service_tier) {
+					this.lastServiceTier = resp.service_tier as ServiceTier
+				}
+				// Capture complete output array (includes reasoning items with encrypted_content)
+				if (resp?.output && Array.isArray(resp.output)) {
+					this.lastResponseOutput = resp.output
+				}
+				// Capture top-level response id
+				if (typeof respId === "string") {
+					this.lastResponseId = respId
+				}
+
+				// Emit status transitions
+				if (
+					status &&
+					(status === "queued" ||
+						status === "in_progress" ||
+						status === "completed" ||
+						status === "failed" ||
+						status === "canceled")
+				) {
+					if (status !== lastEmittedStatus) {
+						// Reset polling cadence when the response status changes.
+						nextPollDelayMs = pollIntervalMs
+						if (shouldLogStatus) {
+							this.logProvider(
+								"status",
+								"Polling status update",
+								{
+									status,
+									responseId: respId,
+									pollCount,
+									httpStatus: pollRes.status,
+									headers: pollHeaders,
+									headerKeys: pollHeaderKeys,
+									...(typeof pollRetryAfterMs === "number" ? { retryAfterMs: pollRetryAfterMs } : {}),
+								},
+								model.id,
+							)
+						}
+						yield {
+							type: "status",
+							mode: "background",
+							status: status as any,
+							...(respId ? { responseId: respId } : {}),
+						}
+						lastEmittedStatus = status as any
+						lastPolledStatus = pollRes.status
+					} else if (status === "queued" || status === "in_progress") {
+						// Status unchanged: progressively reduce request volume.
+						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+					}
+				}
+
+				if (status === "completed") {
+					try {
+						const output = resp?.output ?? raw?.output
+						const outputText = resp?.output_text ?? raw?.output_text
+						const outputItemTypes = Array.isArray(output)
+							? Array.from(
+									new Set(
+										output
+											.map((o: any) => (o && typeof o === "object" ? (o as any).type : undefined))
+											.filter((t: any) => typeof t === "string"),
+									),
+								)
+							: undefined
+						this.logProvider(
+							"response",
+							"Polling completed response payload summary",
+							{
+								responseId: respId ?? responseId,
+								pollCount,
+								wrapped: !!raw?.response,
+								rawKeys: raw && typeof raw === "object" ? Object.keys(raw) : undefined,
+								respKeys: resp && typeof resp === "object" ? Object.keys(resp) : undefined,
+								outputArrayLength: Array.isArray(output) ? output.length : undefined,
+								outputItemTypes,
+								outputTextLength: typeof outputText === "string" ? outputText.length : undefined,
+								usageKeys:
+									resp?.usage && typeof resp.usage === "object" ? Object.keys(resp.usage) : undefined,
+								headers: pollHeaders,
+								headerKeys: pollHeaderKeys,
+								...(typeof pollRetryAfterMs === "number" ? { retryAfterMs: pollRetryAfterMs } : {}),
+							},
+							model.id,
+						)
+					} catch {
+						// Never break polling due to logging failures.
+					}
+
+					yield* this.emitFinalResponseOutput(resp, raw, model)
+					return
+				}
+
+				if (status === "failed" || status === "canceled") {
+					const errorObj = resp?.error ?? raw?.error
+					const detail: string | undefined = errorObj?.message ?? resp?.error?.message ?? raw?.error?.message
+					const msg = detail ? `Response ${status}: ${detail}` : `Response ${status}: ${respId || responseId}`
+
+					try {
+						this.logProvider(
+							"error",
+							"Background response returned terminal status",
+							{
+								status,
+								responseId: respId ?? responseId,
+								pollCount,
+								error: errorObj,
+								incompleteDetails: resp?.incomplete_details ?? raw?.incomplete_details,
+								httpStatus: pollRes.status,
+								headers: pollHeaders,
+								headerKeys: pollHeaderKeys,
+								...(typeof pollRetryAfterMs === "number" ? { retryAfterMs: pollRetryAfterMs } : {}),
+							},
+							model.id,
+						)
+					} catch {
+						// Never break polling due to logging failures.
+					}
+
+					const terminalErr = createTerminalBackgroundError(msg)
+					const maybeStatus =
+						typeof errorObj?.status === "number"
+							? (errorObj.status as number)
+							: typeof errorObj?.status_code === "number"
+								? (errorObj.status_code as number)
+								: typeof errorObj?.http_status === "number"
+									? (errorObj.http_status as number)
+									: undefined
+					const lowerDetail = typeof detail === "string" ? detail.toLowerCase() : ""
+					const lowerType = typeof errorObj?.type === "string" ? errorObj.type.toLowerCase() : ""
+					const lowerCode = typeof errorObj?.code === "string" ? errorObj.code.toLowerCase() : ""
+					const inferredStatus =
+						maybeStatus ||
+						(lowerDetail.includes("too many requests") ||
+						lowerDetail.includes("rate limit") ||
+						lowerType.includes("rate_limit") ||
+						lowerCode.includes("rate_limit")
+							? 429
+							: undefined)
+					if (typeof inferredStatus === "number") {
+						;(terminalErr as any).status = inferredStatus
+					}
+
+					// Some gateways (notably Azure) can return HTTP 200 but a terminal error indicating throttling.
+					// When we infer a 429, log the full raw poll response (headers + body) for debugging.
+					if (inferredStatus === 429) {
+						try {
+							let rawBodyText = ""
+							try {
+								rawBodyText = JSON.stringify(raw)
+							} catch {
+								rawBodyText = String(raw)
+							}
+
+							this.logProvider(
+								"error",
+								"Polling terminal response indicates rate limit (raw)",
+								{
+									method: "GET",
+									url: pollUrl,
+									httpStatus: pollRes.status,
+									statusText: pollRes.statusText,
+									headers: pollHeaders,
+									allHeaders: headersToObject(pollRes.headers),
+									headerKeys: pollHeaderKeys,
+									bodyTextLength: rawBodyText.length,
+									bodyTextChunks: chunkStringForProviderLog(rawBodyText),
+									responseId: respId ?? responseId,
+									pollCount,
+								},
+								model.id,
+							)
+						} catch {
+							// Never break polling due to logging failures.
+						}
+					}
+
+					throw terminalErr
+				}
+			} catch (err: any) {
+				this.logProvider("error", "Polling error", { error: err, pollCount, responseId }, model.id)
+				// If we've already emitted a terminal status, propagate to consumer to stop polling.
+				if (lastEmittedStatus === "failed" || lastEmittedStatus === "canceled") {
+					throw err
+				}
+				if (this.abortController?.signal.aborted) {
+					yield { type: "status", mode: "background", status: "canceled", responseId }
+					return
+				}
+
+				// Classify polling errors and log appropriately
+				const statusCode = err?.status ?? err?.response?.status
+				const msg = err instanceof Error ? err.message : String(err)
+
+				// Permanent errors: stop polling
+				if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
+					console.error(`[OpenAiNative][poll] permanent error (status ${statusCode}); stopping: ${msg}`)
+					throw createTerminalBackgroundError(`Polling failed with status ${statusCode}: ${msg}`)
+				}
+
+				// Rate limit: transient, will retry
+				if (statusCode === 429) {
+					console.warn(`[OpenAiNative][poll] rate limited; will retry: ${msg}`)
+				} else {
+					// Other transient/network errors
+					console.warn(
+						`[OpenAiNative][poll] transient error; will retry${statusCode ? ` (status ${statusCode})` : ""}: ${msg}`,
+					)
+				}
+
+				// Back off on transient polling errors (including rate limits) to avoid making throttling worse.
+				nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
+			}
+
+			// Stop polling immediately on terminal background statuses
+			if (lastEmittedStatus === "failed" || lastEmittedStatus === "canceled") {
+				throw new Error(`Background polling terminated with status=${lastEmittedStatus} for ${responseId}`)
+			}
+
+			await new Promise((r) => setTimeout(r, nextPollDelayMs))
+		}
+
+		this.logProvider("error", "Background response polling timed out", { responseId, pollCount }, model.id)
+		throw new Error(`Background response polling timed out for ${responseId}`)
 	}
 
 	/**
@@ -1431,7 +2120,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 							else if (parsed.type === "response.error" || parsed.type === "error") {
 								// Error event from the API
 								if (parsed.error || parsed.message) {
-									const errMsg = `Responses API error: ${parsed.error?.message || parsed.message || "Unknown error"}`
+									const errMsg = `Responses API stream error (raw): ${data}`
 									this.logProvider(
 										"error",
 										"Responses API stream error event",
@@ -1667,7 +2356,11 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		}
 
 		const apiKey = this.options.openAiNativeApiKey ?? "not-provided"
-		const resumeMaxRetries = this.options.openAiNativeBackgroundResumeMaxRetries ?? 3
+		const configuredResumeMaxRetries = this.options.openAiNativeBackgroundResumeMaxRetries
+		const resumeMaxRetries =
+			isAzureOpenAiBaseUrl(this.options.openAiNativeBaseUrl) && configuredResumeMaxRetries === undefined
+				? 0
+				: (configuredResumeMaxRetries ?? 3)
 		const resumeBaseDelayMs = this.options.openAiNativeBackgroundResumeBaseDelayMs ?? 1000
 
 		// Try streaming resume with exponential backoff
@@ -1702,6 +2395,35 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 				if (!res.ok) {
 					const status = res.status
+					if (status === 429) {
+						let bodyText: string | undefined
+						try {
+							bodyText = await res.text()
+						} catch {
+							bodyText = undefined
+						}
+						this.logProvider(
+							"error",
+							"Resume HTTP 429 response (raw)",
+							{
+								attempt: attempt + 1,
+								method: "GET",
+								url: resumeUrl,
+								status,
+								statusText: res.statusText,
+								headers: pickRateLimitHeaders(res.headers),
+								allHeaders: headersToObject(res.headers),
+								headerKeys: listHeaderKeys(res.headers),
+								...(typeof bodyText === "string"
+									? {
+											bodyTextLength: bodyText.length,
+											bodyTextChunks: chunkStringForProviderLog(bodyText),
+										}
+									: {}),
+							},
+							model.id,
+						)
+					}
 					if (status === 401 || status === 403) {
 						yield {
 							type: "status",
@@ -1714,12 +2436,10 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 						;(terminalErr as any).status = status
 						throw terminalErr
 					}
-					if (status === 404) {
-						// Some gateways may not support the resume streaming endpoint even when the
-						// stored response exists; fall back to polling instead of failing the request.
-						const terminalErr = createTerminalBackgroundError(`Resume request failed (${status})`)
-						;(terminalErr as any).status = status
-						throw terminalErr
+					if (status === 404 || status === 408 || status === 504) {
+						// Some gateways may not support the resume streaming endpoint (404) or may time out (408/504)
+						// even when the stored response exists; fall back to polling instead of failing the request.
+						break
 					}
 
 					throw new Error(`Resume request failed (${status})`)
@@ -1791,203 +2511,8 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			responseId,
 		}
 
-		const pollIntervalMs = this.options.openAiNativeBackgroundPollIntervalMs ?? 2000
-		const pollMaxMinutes = this.options.openAiNativeBackgroundPollMaxMinutes ?? 20
-		const deadline = Date.now() + pollMaxMinutes * 60_000
-		const pollMaxIntervalMs = Math.max(pollIntervalMs, 30_000)
-		const pollBackoffFactor = 1.5
-
-		let lastEmittedStatus: "queued" | "in_progress" | "completed" | "failed" | "canceled" | undefined = undefined
-		let pollCount = 0
-		let lastPolledStatus: number | undefined
-		let nextPollDelayMs = pollIntervalMs
-
-		while (Date.now() <= deadline) {
-			try {
-				pollCount += 1
-				const pollRes = await fetch(this.buildResponsesUrl(`responses/${responseId}`), {
-					method: "GET",
-					headers: {
-						Authorization: `Bearer ${apiKey}`,
-					},
-					signal: this.abortController?.signal,
-				})
-
-				if (!pollRes.ok) {
-					const retryAfterMs = getRetryAfterMs(pollRes.headers)
-					this.logProvider(
-						"error",
-						"Polling response not ok",
-						{
-							status: pollRes.status,
-							pollCount,
-							responseId,
-							headers: pickRateLimitHeaders(pollRes.headers),
-							...(typeof retryAfterMs === "number" ? { retryAfterMs } : {}),
-						},
-						model.id,
-					)
-					const status = pollRes.status
-					if (status === 401 || status === 403 || status === 404) {
-						yield {
-							type: "status",
-							mode: "background",
-							status: "failed",
-							responseId,
-						}
-						const terminalErr = createTerminalBackgroundError(`Polling failed with status ${status}`)
-						;(terminalErr as any).status = status
-						throw terminalErr
-					}
-
-					// transient; back off and retry
-					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
-					if (typeof retryAfterMs === "number") {
-						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.max(nextPollDelayMs, retryAfterMs))
-					}
-					await new Promise((r) => setTimeout(r, nextPollDelayMs))
-					continue
-				}
-
-				let raw: any
-				try {
-					raw = await pollRes.json()
-				} catch {
-					nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
-					await new Promise((r) => setTimeout(r, nextPollDelayMs))
-					continue
-				}
-
-				const resp = raw?.response ?? raw
-				const status: string | undefined = resp?.status
-				const respId: string | undefined = resp?.id ?? responseId
-				const shouldLogStatus = status !== lastEmittedStatus || pollRes.status !== lastPolledStatus
-
-				// Capture resolved service tier if present
-				if (resp?.service_tier) {
-					this.lastServiceTier = resp.service_tier as ServiceTier
-				}
-
-				// Emit status transitions
-				if (
-					status &&
-					(status === "queued" ||
-						status === "in_progress" ||
-						status === "completed" ||
-						status === "failed" ||
-						status === "canceled")
-				) {
-					if (status !== lastEmittedStatus) {
-						// Reset polling cadence when the response status changes.
-						nextPollDelayMs = pollIntervalMs
-						if (shouldLogStatus) {
-							this.logProvider(
-								"status",
-								"Polling status update",
-								{ status, responseId: respId, pollCount },
-								model.id,
-							)
-						}
-						yield {
-							type: "status",
-							mode: "background",
-							status: status as any,
-							...(respId ? { responseId: respId } : {}),
-						}
-						lastEmittedStatus = status as any
-						lastPolledStatus = pollRes.status
-					} else if (status === "queued" || status === "in_progress") {
-						// Status unchanged: progressively reduce request volume.
-						nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
-					}
-				}
-
-				if (status === "completed") {
-					// Synthesize final output
-					const output = resp?.output ?? raw?.output
-					if (Array.isArray(output)) {
-						for (const outputItem of output) {
-							if (outputItem.type === "text" && Array.isArray(outputItem.content)) {
-								for (const content of outputItem.content) {
-									if (content?.type === "text" && typeof content.text === "string") {
-										yield { type: "text", text: content.text }
-									}
-								}
-							} else if (outputItem.type === "message" && Array.isArray(outputItem.content)) {
-								for (const content of outputItem.content) {
-									if (
-										(content?.type === "output_text" || content?.type === "text") &&
-										typeof content.text === "string"
-									) {
-										yield { type: "text", text: content.text }
-									}
-								}
-							} else if (outputItem.type === "reasoning" && Array.isArray(outputItem.summary)) {
-								for (const summary of outputItem.summary) {
-									if (summary?.type === "summary_text" && typeof summary.text === "string") {
-										yield { type: "reasoning", text: summary.text }
-									}
-								}
-							}
-						}
-					}
-
-					// Synthesize usage
-					const usage = resp?.usage ?? raw?.usage
-					const usageData = this.normalizeUsage(usage, model)
-					if (usageData) {
-						yield usageData
-					}
-
-					return
-				}
-
-				if (status === "failed" || status === "canceled") {
-					const detail: string | undefined = resp?.error?.message ?? raw?.error?.message
-					const msg = detail ? `Response ${status}: ${detail}` : `Response ${status}: ${respId || responseId}`
-					throw createTerminalBackgroundError(msg)
-				}
-			} catch (err: any) {
-				this.logProvider("error", "Polling error", { error: err, pollCount, responseId }, model.id)
-				// If we've already emitted a terminal status, propagate to consumer to stop polling.
-				if (lastEmittedStatus === "failed" || lastEmittedStatus === "canceled") {
-					throw err
-				}
-
-				// Classify polling errors and log appropriately
-				const statusCode = err?.status ?? err?.response?.status
-				const msg = err instanceof Error ? err.message : String(err)
-
-				// Permanent errors: stop polling
-				if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
-					console.error(`[OpenAiNative][poll] permanent error (status ${statusCode}); stopping: ${msg}`)
-					throw createTerminalBackgroundError(`Polling failed with status ${statusCode}: ${msg}`)
-				}
-
-				// Rate limit: transient, will retry
-				if (statusCode === 429) {
-					console.warn(`[OpenAiNative][poll] rate limited; will retry: ${msg}`)
-				} else {
-					// Other transient/network errors
-					console.warn(
-						`[OpenAiNative][poll] transient error; will retry${statusCode ? ` (status ${statusCode})` : ""}: ${msg}`,
-					)
-				}
-
-				// Back off on transient polling errors (including rate limits) to avoid making throttling worse.
-				nextPollDelayMs = Math.min(pollMaxIntervalMs, Math.ceil(nextPollDelayMs * pollBackoffFactor))
-			}
-
-			// Stop polling immediately on terminal background statuses
-			if (lastEmittedStatus === "failed" || lastEmittedStatus === "canceled") {
-				throw new Error(`Background polling terminated with status=${lastEmittedStatus} for ${responseId}`)
-			}
-
-			await new Promise((r) => setTimeout(r, nextPollDelayMs))
-		}
-
-		this.logProvider("error", "Background response polling timed out", { responseId, pollCount }, model.id)
-		throw new Error(`Background response polling timed out for ${responseId}`)
+		yield* this.pollBackgroundResponse(responseId, model)
+		return
 	}
 
 	/**
@@ -2018,7 +2543,13 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Handle explicit error events emitted in-stream by the API/SDK.
 		// Treat background-mode errors as terminal to avoid futile resume/poll fallbacks.
 		if (event?.type === "response.error" || event?.type === "error") {
-			const errMsg = `Responses API error: ${event?.error?.message || event?.message || "Unknown error"}`
+			let raw = ""
+			try {
+				raw = JSON.stringify(event)
+			} catch {
+				raw = String(event)
+			}
+			const errMsg = `Responses API stream error (raw): ${raw}`
 			this.logProvider(
 				"error",
 				"Streaming error event",

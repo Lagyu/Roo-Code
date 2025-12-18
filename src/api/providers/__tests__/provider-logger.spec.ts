@@ -41,11 +41,50 @@ describe("provider-logger sanitize()", () => {
 					Authorization: "Bearer secret",
 				},
 				apiKey: "also-secret",
+				access_token: "oauth-secret",
+				refreshToken: "oauth-secret-2",
 			},
 		})
 
 		expect(entries[0].data.headers.Authorization).toBe("<redacted>")
 		expect(entries[0].data.apiKey).toBe("<redacted>")
+		expect(entries[0].data.access_token).toBe("<redacted>")
+		expect(entries[0].data.refreshToken).toBe("<redacted>")
+	})
+
+	it("does not redact max_output_tokens or token count fields", () => {
+		const entries: any[] = []
+		setProviderLogger((entry) => entries.push(entry))
+
+		logProviderEvent({
+			provider: "test",
+			stage: "request",
+			data: {
+				body: {
+					max_output_tokens: 8192,
+					max_tokens: 4096,
+					prompt_tokens: 10,
+					completion_tokens: 2,
+				},
+				usage: {
+					inputTokens: 10,
+					outputTokens: 2,
+				},
+				headers: {
+					"x-ratelimit-limit-tokens": "803000",
+					"x-ratelimit-remaining-tokens": "802000",
+				},
+			},
+		})
+
+		expect(entries[0].data.body.max_output_tokens).toBe(8192)
+		expect(entries[0].data.body.max_tokens).toBe(4096)
+		expect(entries[0].data.body.prompt_tokens).toBe(10)
+		expect(entries[0].data.body.completion_tokens).toBe(2)
+		expect(entries[0].data.usage.inputTokens).toBe(10)
+		expect(entries[0].data.usage.outputTokens).toBe(2)
+		expect(entries[0].data.headers["x-ratelimit-limit-tokens"]).toBe("803000")
+		expect(entries[0].data.headers["x-ratelimit-remaining-tokens"]).toBe("802000")
 	})
 
 	it("replaces data-URIs with a length marker", () => {

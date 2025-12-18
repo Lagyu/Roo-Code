@@ -229,6 +229,50 @@ describe("ThinkingBudget", () => {
 		expect(setApiConfigurationField).toHaveBeenCalledWith("modelMaxTokens", 12000)
 	})
 
+	describe("GPT-5 Pro max output tokens", () => {
+		const gpt5ProModelInfo: ModelInfo = {
+			maxTokens: 128000,
+			contextWindow: 400000,
+			supportsPromptCache: false,
+			supportsImages: true,
+			backgroundMode: true,
+		}
+
+		it("should show max output tokens toggle for gpt-5-pro models", () => {
+			render(
+				<ThinkingBudget
+					apiConfiguration={{ apiProvider: "openai-native", apiModelId: "gpt-5-pro-2025-10-06" }}
+					setApiConfigurationField={vi.fn()}
+					modelInfo={gpt5ProModelInfo}
+				/>,
+			)
+
+			expect(screen.getByText("settings:maxOutputTokensLabel")).toBeInTheDocument()
+			expect(screen.queryByTestId("slider")).not.toBeInTheDocument()
+		})
+
+		it("should update modelMaxTokens from the gpt-5-pro max output tokens slider", () => {
+			const setApiConfigurationField = vi.fn()
+
+			render(
+				<ThinkingBudget
+					apiConfiguration={{
+						apiProvider: "openai-native",
+						apiModelId: "gpt-5-pro-2025-10-06",
+						modelMaxTokens: 4096,
+					}}
+					setApiConfigurationField={setApiConfigurationField}
+					modelInfo={gpt5ProModelInfo}
+				/>,
+			)
+
+			const slider = screen.getByTestId("slider")
+			fireEvent.change(slider, { target: { value: "8192" } })
+
+			expect(setApiConfigurationField).toHaveBeenCalledWith("modelMaxTokens", 8192)
+		})
+	})
+
 	describe("reasoning effort dropdown", () => {
 		const reasoningEffortModelInfo: ModelInfo = {
 			supportsReasoningEffort: true,

@@ -197,7 +197,7 @@ describe("OpenAiNativeHandler", () => {
 				for await (const _chunk of stream) {
 					// Should not reach here
 				}
-			}).rejects.toThrow("OpenAI service error")
+			}).rejects.toThrow("Responses API HTTP 500")
 		})
 
 		it("should cap max_output_tokens for Azure baseUrl and retry on no_kv_space", async () => {
@@ -1088,17 +1088,10 @@ describe("OpenAiNativeHandler", () => {
 			expect(callBody.previous_response_id).toBeUndefined()
 		})
 
-		it("should provide helpful error messages for different error codes", async () => {
-			const testCases = [
-				{ status: 400, expectedMessage: "Invalid request to Responses API" },
-				{ status: 401, expectedMessage: "Authentication failed" },
-				{ status: 403, expectedMessage: "Access denied" },
-				{ status: 404, expectedMessage: "Responses API endpoint not found" },
-				{ status: 429, expectedMessage: "Rate limit exceeded" },
-				{ status: 500, expectedMessage: "OpenAI service error" },
-			]
+		it("should surface raw HTTP error responses for different status codes", async () => {
+			const testCases = [400, 401, 403, 404, 429, 500]
 
-			for (const { status, expectedMessage } of testCases) {
+			for (const status of testCases) {
 				// Mock fetch with error response
 				const mockFetch = vitest.fn().mockResolvedValue({
 					ok: false,
@@ -1118,11 +1111,18 @@ describe("OpenAiNativeHandler", () => {
 
 				const stream = handler.createMessage(systemPrompt, messages)
 
-				await expect(async () => {
-					for await (const chunk of stream) {
+				let thrown: any
+				try {
+					for await (const _chunk of stream) {
 						// Should throw before yielding anything
 					}
-				}).rejects.toThrow(expectedMessage)
+				} catch (e) {
+					thrown = e
+				}
+
+				expect(thrown).toBeInstanceOf(Error)
+				expect((thrown as Error).message).toContain(`Responses API HTTP ${status}`)
+				expect((thrown as Error).message).toContain("Test error")
 
 				// Clean up
 				delete (global as any).fetch
@@ -1552,7 +1552,7 @@ describe("GPT-5 streaming event coverage (additional)", () => {
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
-			}).rejects.toThrow("Responses API error: Model overloaded")
+			}).rejects.toThrow('Responses API stream error (raw): {"type":"response.error"')
 		})
 
 		it("should insert an empty assistant message after reasoning for tool-only turns", async () => {
@@ -1930,6 +1930,105 @@ describe("OpenAI Native background mode behavior", () => {
 		expect(requestBodyWithOptionFalse.stream).toBe(true)
 	})
 
+	it("prefers background polling (stream:false) for gpt-5-pro on Azure baseUrl", async () => {
+		const handler = new OpenAiNativeHandler({
+			apiModelId: "gpt-5-pro-2025-10-06",
+			openAiNativeApiKey: "test",
+			openAiNativeBaseUrl: "https://example.openai.azure.com/openai/v1",
+		})
+
+		mockResponsesCreate.mockResolvedValueOnce({ id: "resp_poll", status: "in_progress" })
+
+		const mockFetch = vitest.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					response: {
+						id: "resp_poll",
+						status: "completed",
+						output: [
+							{
+								type: "message",
+								content: [{ type: "output_text", text: "Done" }],
+							},
+						],
+						usage: { input_tokens: 1, output_tokens: 1 },
+					},
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		)
+		global.fetch = mockFetch as any
+
+		const chunks: any[] = []
+		for await (const chunk of handler.createMessage(systemPrompt, baseMessages, metadataStoreFalse)) {
+			chunks.push(chunk)
+		}
+
+		const requestBody = mockResponsesCreate.mock.calls[0][0]
+		expect(requestBody.background).toBe(true)
+		expect(requestBody.store).toBe(true)
+		expect(requestBody.stream).toBe(false)
+
+		expect(chunks).toContainEqual({
+			type: "status",
+			mode: "background",
+			status: "in_progress",
+			responseId: "resp_poll",
+		})
+		expect(chunks).toContainEqual({ type: "text", text: "Done" })
+		expect(chunks).toContainEqual(expect.objectContaining({ type: "usage", inputTokens: 1, outputTokens: 1 }))
+	})
+
+	it("emits output_text fallback for completed polled responses when output array is missing", async () => {
+		const handler = new OpenAiNativeHandler({
+			apiModelId: "gpt-5-pro-2025-10-06",
+			openAiNativeApiKey: "test",
+			openAiNativeBaseUrl: "https://example.openai.azure.com/openai/v1",
+		})
+
+		mockResponsesCreate.mockResolvedValueOnce({ id: "resp_poll2", status: "in_progress" })
+
+		const mockFetch = vitest.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					response: {
+						id: "resp_poll2",
+						status: "completed",
+						output_text: "Done via output_text",
+						usage: { input_tokens: 2, output_tokens: 3 },
+					},
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		)
+		global.fetch = mockFetch as any
+
+		const chunks: any[] = []
+		for await (const chunk of handler.createMessage(systemPrompt, baseMessages, metadataStoreFalse)) {
+			chunks.push(chunk)
+		}
+
+		const requestBody = mockResponsesCreate.mock.calls[0][0]
+		expect(requestBody.background).toBe(true)
+		expect(requestBody.store).toBe(true)
+		expect(requestBody.stream).toBe(false)
+
+		expect(chunks).toContainEqual({
+			type: "status",
+			mode: "background",
+			status: "in_progress",
+			responseId: "resp_poll2",
+		})
+		expect(chunks).toContainEqual({ type: "text", text: "Done via output_text" })
+		expect(chunks).toContainEqual(expect.objectContaining({ type: "usage", inputTokens: 2, outputTokens: 3 }))
+	})
+
 	it("forces store:true and includes background:true when falling back to SSE", async () => {
 		const handler = new OpenAiNativeHandler({
 			apiModelId: "gpt-5-pro-2025-10-06",
@@ -2288,7 +2387,7 @@ describe("OpenAI Native background auto-resume and polling", () => {
 
 		expect(thrown).toBeInstanceOf(Error)
 		expect((thrown as any).name).toBe("TerminalBackgroundError")
-		expect((thrown as Error).message).toContain("Responses API error: Too Many Requests")
+		expect((thrown as Error).message).toContain('Responses API stream error (raw): {"type":"response.error"')
 
 		const statusNames = chunks.filter((c) => c.type === "status").map((s: any) => s.status)
 		expect(statusNames).toContain("reconnecting")
@@ -2340,7 +2439,7 @@ describe("OpenAI Native background auto-resume and polling", () => {
 
 		expect(thrown).toBeInstanceOf(Error)
 		expect((thrown as any).name).toBe("TerminalBackgroundError")
-		expect((thrown as Error).message).toContain("Responses API error: Too Many Requests")
+		expect((thrown as Error).message).toContain('Responses API stream error (raw): {"type":"response.error"')
 
 		const statusNames = chunks.filter((c) => c.type === "status").map((s: any) => s.status)
 		expect(statusNames).toContain("queued")

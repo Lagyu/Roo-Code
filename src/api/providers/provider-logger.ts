@@ -65,7 +65,21 @@ function formatError(error: unknown) {
 // - Prevent pathological recursion (circular references / extremely deep objects)
 const MAX_STRING_LENGTH = 300
 const MAX_DEPTH = 50
-const SENSITIVE_KEYS = ["authorization", "apikey", "api_key", "token", "secret", "password"]
+const SENSITIVE_KEY_SUBSTRINGS = ["authorization", "apikey", "api_key", "secret", "password"]
+
+function isSensitiveKey(key: string): boolean {
+	const lower = key.toLowerCase()
+
+	if (SENSITIVE_KEY_SUBSTRINGS.some((sensitive) => lower.includes(sensitive))) return true
+
+	// Treat "token" as sensitive only when it's a standalone segment (e.g. token, access_token, id-token)
+	// or when the key ends with "token" (e.g. refreshToken). Do not redact token *count* fields like
+	// max_output_tokens, prompt_tokens, outputTokens, or x-*-ratelimit-*-tokens.
+	if (/(^|[_-])token([_-]|$)/.test(lower)) return true
+	if (!lower.endsWith("tokens") && lower.endsWith("token")) return true
+
+	return false
+}
 
 function sanitize(value: unknown, depth = 0, stack: WeakSet<object> = new WeakSet()): unknown {
 	if (value === null || value === undefined) {
@@ -114,7 +128,7 @@ function sanitize(value: unknown, depth = 0, stack: WeakSet<object> = new WeakSe
 		const out: Record<string, unknown> = {}
 		try {
 			for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-				if (SENSITIVE_KEYS.some((sensitive) => key.toLowerCase().includes(sensitive))) {
+				if (isSensitiveKey(key)) {
 					out[key] = "<redacted>"
 				} else {
 					out[key] = sanitize(val, depth + 1, stack)

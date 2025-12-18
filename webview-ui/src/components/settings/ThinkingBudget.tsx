@@ -52,6 +52,9 @@ import { useAppTranslation } from "@src/i18n/TranslationContext"
 import { Slider, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@src/components/ui"
 import { useSelectedModel } from "@src/components/ui/hooks/useSelectedModel"
 
+const OPENAI_NATIVE_DEFAULT_MAX_OUTPUT_TOKENS = 16_384
+const OPENAI_NATIVE_AZURE_DEFAULT_MAX_OUTPUT_TOKENS = 8_192
+
 interface ThinkingBudgetProps {
 	apiConfiguration: ProviderSettings
 	setApiConfigurationField: <K extends keyof ProviderSettings>(
@@ -162,6 +165,73 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 
 	if (!modelInfo) {
 		return null
+	}
+
+	// GPT-5 Pro uses background mode with long-running requests. Expose max output tokens as a dedicated control
+	// even though we intentionally hide reasoning effort controls for this model.
+	const isGpt5ProModel =
+		apiConfiguration.apiProvider === "openai-native" &&
+		typeof selectedModelId === "string" &&
+		selectedModelId.toLowerCase().startsWith("gpt-5-pro")
+
+	if (isGpt5ProModel) {
+		const isAzureBaseUrl =
+			typeof apiConfiguration.openAiNativeBaseUrl === "string" &&
+			apiConfiguration.openAiNativeBaseUrl.toLowerCase().includes(".openai.azure.com")
+
+		const modelMaxTokens =
+			typeof modelInfo.maxTokens === "number" && Number.isFinite(modelInfo.maxTokens) && modelInfo.maxTokens > 0
+				? modelInfo.maxTokens
+				: undefined
+
+		const defaultCap = isAzureBaseUrl
+			? OPENAI_NATIVE_AZURE_DEFAULT_MAX_OUTPUT_TOKENS
+			: OPENAI_NATIVE_DEFAULT_MAX_OUTPUT_TOKENS
+
+		const defaultMaxOutputTokens = modelMaxTokens ? Math.min(modelMaxTokens, defaultCap) : defaultCap
+
+		const customMaxOutputTokens =
+			typeof apiConfiguration.modelMaxTokens === "number" &&
+			Number.isFinite(apiConfiguration.modelMaxTokens) &&
+			apiConfiguration.modelMaxTokens > 0
+				? apiConfiguration.modelMaxTokens
+				: undefined
+
+		const isCustomMaxOutputTokensEnabled = typeof customMaxOutputTokens === "number"
+		return (
+			<>
+				<div className="flex flex-col gap-1" data-testid="gpt5-pro-max-output-tokens">
+					<Checkbox
+						checked={isCustomMaxOutputTokensEnabled}
+						onChange={(checked: boolean) => {
+							if (checked) {
+								setApiConfigurationField("modelMaxTokens", defaultMaxOutputTokens)
+							} else {
+								setApiConfigurationField("modelMaxTokens", undefined)
+							}
+						}}>
+						{t("settings:maxOutputTokensLabel")}
+					</Checkbox>
+					<div className="text-sm text-vscode-descriptionForeground ml-6">
+						{t("settings:limitMaxTokensDescription")}
+					</div>
+				</div>
+				{isCustomMaxOutputTokensEnabled && (
+					<div className="flex flex-col gap-1">
+						<div className="flex items-center gap-1">
+							<Slider
+								min={1024}
+								max={Math.max(modelMaxTokens || 1024, customMaxOutputTokens, defaultMaxOutputTokens)}
+								step={1024}
+								value={[customMaxOutputTokens]}
+								onValueChange={([value]) => setApiConfigurationField("modelMaxTokens", value)}
+							/>
+							<div className="w-12 text-sm text-center">{customMaxOutputTokens}</div>
+						</div>
+					</div>
+				)}
+			</>
+		)
 	}
 
 	// Models with supportsReasoningBinary (binary reasoning) show a simple on/off toggle
