@@ -1145,9 +1145,7 @@ describe("OpenAiNativeHandler", () => {
 				ok: true,
 				body: new ReadableStream({
 					start(controller) {
-						controller.enqueue(
-							new TextEncoder().encode('data: {"type":"response.done","response":{}}\n\n'),
-						)
+						controller.enqueue(new TextEncoder().encode('data: {"type":"response.done","response":{}}\n\n'))
 						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
 						controller.close()
 					},
@@ -1284,7 +1282,7 @@ describe("OpenAiNativeHandler", () => {
 			expect(mockCaptureException).toHaveBeenCalledTimes(1)
 			expect(mockCaptureException).toHaveBeenCalledWith(
 				expect.objectContaining({
-					message: expect.stringContaining("OpenAI service error"),
+					message: expect.stringContaining("Responses API HTTP 500"),
 					provider: "OpenAI Native",
 					modelId: "gpt-4.1",
 					operation: "createMessage",

@@ -26,6 +26,9 @@ vi.mock("vscode", () => ({
 			onDidDelete: vi.fn(),
 			dispose: vi.fn(),
 		}),
+		onDidChangeConfiguration: vi.fn().mockReturnValue({
+			dispose: vi.fn(),
+		}),
 		onDidChangeWorkspaceFolders: vi.fn(),
 	},
 	languages: {

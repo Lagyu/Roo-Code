@@ -22,8 +22,8 @@ describe("DEFAULT_HEADERS", () => {
 		const userAgent = DEFAULT_HEADERS["User-Agent"]
 		expect(userAgent).toBe(`RooCode/${Package.version}`)
 
-		// Verify it follows the tool_name/version pattern
-		expect(userAgent).toMatch(/^[a-zA-Z-]+\/\d+\.\d+\.\d+$/)
+		// Verify it follows the tool_name/version pattern (supports optional prerelease/build metadata)
+		expect(userAgent).toMatch(/^[a-zA-Z-]+\/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/)
 	})
 
 	it("should have User-Agent with correct tool name", () => {
@@ -35,8 +35,8 @@ describe("DEFAULT_HEADERS", () => {
 		const userAgent = DEFAULT_HEADERS["User-Agent"]
 		const version = userAgent.split("/")[1]
 
-		// Check semantic version format (major.minor.patch)
-		expect(version).toMatch(/^\d+\.\d+\.\d+$/)
+		// Check semantic version format (major.minor.patch, optional prerelease/build metadata)
+		expect(version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/)
 
 		// Verify current version matches package version
 		expect(version).toBe(Package.version)

@@ -1,6 +1,6 @@
 // npx vitest src/components/settings/__tests__/ModelPicker.spec.tsx
 
-import { screen, fireEvent, render } from "@/utils/test-utils"
+import { screen, fireEvent, render, waitFor } from "@/utils/test-utils"
 import { act } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
@@ -57,92 +57,54 @@ describe("ModelPicker", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks()
-		vi.useFakeTimers()
 	})
 
 	afterEach(() => {
-		// Clear any pending timers to prevent test flakiness
-		vi.clearAllTimers()
-		vi.useRealTimers()
+		vi.clearAllMocks()
 	})
 
 	it("calls setApiConfigurationField when a model is selected", async () => {
 		await act(async () => renderModelPicker())
 
-		await act(async () => {
-			// Open the popover by clicking the button.
-			const button = screen.getByTestId("model-picker-button")
-			fireEvent.click(button)
-		})
+		// Open the popover by clicking the button.
+		const button = screen.getByTestId("model-picker-button")
+		fireEvent.click(button)
 
-		// Wait for popover to open and animations to complete.
-		await act(async () => {
-			vi.advanceTimersByTime(100)
-		})
-
-		await act(async () => {
-			// Find and set the input value
-			const modelInput = screen.getByTestId("model-input")
-			fireEvent.input(modelInput, { target: { value: "model2" } })
-		})
+		// Find and set the input value
+		const modelInput = await screen.findByTestId("model-input")
+		fireEvent.input(modelInput, { target: { value: "model2" } })
 
 		// Need to find and click the CommandItem to trigger onSelect
-		await act(async () => {
-			// Find the CommandItem for model2 and click it
-			const modelItem = screen.getByTestId("model-option-model2")
-			fireEvent.click(modelItem)
-		})
-
-		// Advance timers to trigger the setTimeout in onSelect
-		await act(async () => {
-			vi.advanceTimersByTime(100)
-		})
+		const modelItem = await screen.findByTestId("model-option-model2")
+		fireEvent.click(modelItem)
 
 		// Verify the API config was updated.
-		expect(mockSetApiConfigurationField).toHaveBeenCalledWith(defaultProps.modelIdKey, "model2")
+		await waitFor(() => {
+			expect(mockSetApiConfigurationField).toHaveBeenCalledWith(defaultProps.modelIdKey, "model2")
+		})
 	})
 
 	it("allows setting a custom model ID that's not in the predefined list", async () => {
 		await act(async () => renderModelPicker())
 
-		await act(async () => {
-			// Open the popover by clicking the button.
-			const button = screen.getByTestId("model-picker-button")
-			fireEvent.click(button)
-		})
-
-		// Wait for popover to open and animations to complete.
-		await act(async () => {
-			vi.advanceTimersByTime(100)
-		})
+		// Open the popover by clicking the button.
+		const button = screen.getByTestId("model-picker-button")
+		fireEvent.click(button)
 
 		const customModelId = "custom-model-id"
 
-		await act(async () => {
-			// Find and set the input value to a custom model ID
-			const modelInput = screen.getByTestId("model-input")
-			fireEvent.input(modelInput, { target: { value: customModelId } })
-		})
-
-		// Wait for the UI to update
-		await act(async () => {
-			vi.advanceTimersByTime(100)
-		})
+		// Find and set the input value to a custom model ID
+		const modelInput = await screen.findByTestId("model-input")
+		fireEvent.input(modelInput, { target: { value: customModelId } })
 
 		// Find and click the "Use custom" option
-		await act(async () => {
-			// Look for text containing our custom model ID
-			const customOption = screen.getByTestId("use-custom-model")
-			fireEvent.click(customOption)
-		})
-
-		// Advance timers to trigger the setTimeout in onSelect
-		await act(async () => {
-			vi.advanceTimersByTime(100)
-		})
+		const customOption = await screen.findByTestId("use-custom-model")
+		fireEvent.click(customOption)
 
 		// Verify the API config was updated with the custom model ID
-		expect(mockSetApiConfigurationField).toHaveBeenCalledWith(defaultProps.modelIdKey, customModelId)
+		await waitFor(() => {
+			expect(mockSetApiConfigurationField).toHaveBeenCalledWith(defaultProps.modelIdKey, customModelId)
+		})
 	})
 
 	describe("Error Message Display", () => {

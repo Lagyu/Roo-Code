@@ -75,7 +75,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	const configureProviderLogging = () => {
 		const config = vscode.workspace.getConfiguration(Package.name)
 		const enabledSetting = config.get<boolean>("enableProviderLogging") ?? false
-		const maxStringLengthConfig = config.inspect<number>("providerLogMaxStringLength")
+		const maxStringLengthConfig =
+			typeof config.inspect === "function" ? config.inspect<number>("providerLogMaxStringLength") : undefined
 		const hasExplicitMaxStringLengthSetting =
 			maxStringLengthConfig?.globalValue !== undefined ||
 			maxStringLengthConfig?.workspaceValue !== undefined ||
