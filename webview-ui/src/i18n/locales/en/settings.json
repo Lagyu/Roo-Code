@@ -369,6 +369,12 @@
 		"apiKey": "API Key",
 		"openAiBaseUrl": "Base URL",
 		"getOpenAiApiKey": "Get OpenAI API Key",
+		"openAiNativeParameters": {
+			"webSearchPreview": {
+				"title": "Enable web_search_preview",
+				"description": "Allows the model to use OpenAI's web search tool when needed."
+			}
+		},
 		"mistralApiKey": "Mistral API Key",
 		"getMistralApiKey": "Get Mistral / Codestral API Key",
 		"codestralBaseUrl": "Codestral Base URL (Optional)",

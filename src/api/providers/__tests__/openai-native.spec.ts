@@ -1088,6 +1088,70 @@ describe("OpenAiNativeHandler", () => {
 			expect(callBody.previous_response_id).toBeUndefined()
 		})
 
+		it("should include web_search_preview tool when enabled", async () => {
+			const mockFetch = vitest.fn().mockResolvedValue({
+				ok: true,
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							new TextEncoder().encode('data: {"type":"response.done","response":{}}\n\n'),
+						)
+						controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+						controller.close()
+					},
+				}),
+			})
+			global.fetch = mockFetch as any
+			mockResponsesCreate.mockRejectedValue(new Error("SDK not available"))
+
+			handler = new OpenAiNativeHandler({
+				...mockOptions,
+				apiModelId: "gpt-5.1",
+				openAiNativeWebSearchPreview: true,
+			})
+
+			const tools: ApiHandlerCreateMessageMetadata["tools"] = [
+				{
+					type: "function",
+					function: {
+						name: "read_file",
+						description: "Read file",
+						parameters: {
+							type: "object",
+							properties: {
+								path: { type: "string" },
+							},
+							required: ["path"],
+						},
+					},
+				},
+			]
+
+			const stream = handler.createMessage(systemPrompt, messages, {
+				taskId: "task1",
+				tools,
+			})
+			for await (const _ of stream) {
+				// drain
+			}
+
+			const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body)
+			expect(requestBody.tools).toEqual(
+				expect.arrayContaining([
+					{ type: "web_search_preview" },
+					expect.objectContaining({
+						type: "function",
+						name: "read_file",
+						strict: true,
+					}),
+				]),
+			)
+			const functionTool = requestBody.tools.find(
+				(tool: any) => tool.type === "function" && tool.name === "read_file",
+			)
+			expect(functionTool.parameters.required).toEqual(["path"])
+		})
+
 		it("should surface raw HTTP error responses for different status codes", async () => {
 			const testCases = [400, 401, 403, 404, 429, 500]
 

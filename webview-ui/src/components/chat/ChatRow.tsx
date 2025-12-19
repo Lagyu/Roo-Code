@@ -1149,6 +1149,9 @@ export const ChatRowContent = ({
 							}
 						} else if (rawLower.startsWith("connection error")) {
 							body = t("chat:apiRequest.errorMessage.connection")
+						} else if (rawLower.startsWith("rate limiting for")) {
+							// Provider-level client rate limiting countdown (not an API failure)
+							body = rawError
 						} else if (
 							rawLower.includes("too many requests") ||
 							rawLower.includes("rate limit") ||
@@ -1158,9 +1161,6 @@ export const ChatRowContent = ({
 							// Some providers (notably Azure background polling) surface throttling as HTTP 200 + body error.
 							// Avoid showing an HTTP 429 code in the UI when the underlying HTTP status isn't 429.
 							body = t("chat:apiRequest.errorMessage.429")
-						} else if (rawLower.startsWith("rate limiting for")) {
-							// Provider-level client rate limiting countdown (not an API failure)
-							body = rawError
 						} else {
 							// Non-HTTP-status-code error message - store full text as errorDetails
 							body = t("chat:apiRequest.errorMessage.unknown")

@@ -360,6 +360,12 @@
 		"apiKey": "APIキー",
 		"openAiBaseUrl": "ベースURL",
 		"getOpenAiApiKey": "OpenAI APIキーを取得",
+		"openAiNativeParameters": {
+			"webSearchPreview": {
+				"title": "web_search_preview を有効にする",
+				"description": "必要に応じて OpenAI の Web 検索ツールを使用できるようにします。"
+			}
+		},
 		"mistralApiKey": "Mistral APIキー",
 		"getMistralApiKey": "Mistral / Codestral APIキーを取得",
 		"codestralBaseUrl": "Codestral ベースURL（オプション）",

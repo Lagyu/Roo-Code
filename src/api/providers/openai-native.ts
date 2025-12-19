@@ -674,6 +674,18 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Build a request body for the OpenAI Responses API.
 		// Ensure we explicitly pass max_output_tokens based on Roo's reserved model response calculation
 		// so requests do not default to very large limits (e.g., 120k).
+		type ResponsesTool =
+			| {
+					type: "function"
+					name: string
+					description?: string
+					parameters?: any
+					strict?: boolean
+			  }
+			| {
+					type: "web_search_preview"
+			  }
+
 		interface ResponsesRequestBody {
 			model: string
 			input: Array<{ role: "user" | "assistant"; content: any[] } | { type: string; content: string }>
@@ -689,13 +701,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			previous_response_id?: string
 			/** Prompt cache retention policy: "in_memory" (default) or "24h" for extended caching */
 			prompt_cache_retention?: "in_memory" | "24h"
-			tools?: Array<{
-				type: "function"
-				name: string
-				description?: string
-				parameters?: any
-				strict?: boolean
-			}>
+			tools?: ResponsesTool[]
 			tool_choice?: any
 			parallel_tool_calls?: boolean
 			background?: boolean
@@ -708,6 +714,25 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Decide whether to enable extended prompt cache retention for this request
 		const promptCacheRetention = this.getPromptCacheRetention(model)
 		const maxOutputTokens = this.getMaxOutputTokensForRequest(model)
+		const tools: ResponsesTool[] = []
+
+		if (metadata?.tools) {
+			tools.push(
+				...metadata.tools
+					.filter((tool) => tool.type === "function")
+					.map((tool) => ({
+						type: "function",
+						name: tool.function.name,
+						description: tool.function.description,
+						parameters: ensureAllRequired(tool.function.parameters),
+						strict: true,
+					})),
+			)
+		}
+
+		if (this.options.openAiNativeWebSearchPreview === true) {
+			tools.push({ type: "web_search_preview" })
+		}
 
 		const body: ResponsesRequestBody = {
 			model: model.id,
@@ -748,17 +773,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 			// Enable extended prompt cache retention for models that support it.
 			// This uses the OpenAI Responses API `prompt_cache_retention` parameter.
 			...(promptCacheRetention ? { prompt_cache_retention: promptCacheRetention } : {}),
-			...(metadata?.tools && {
-				tools: metadata.tools
-					.filter((tool) => tool.type === "function")
-					.map((tool) => ({
-						type: "function",
-						name: tool.function.name,
-						description: tool.function.description,
-						parameters: ensureAllRequired(tool.function.parameters),
-						strict: true,
-					})),
-			}),
+			...(tools.length > 0 ? { tools } : {}),
 			...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
 		}
 

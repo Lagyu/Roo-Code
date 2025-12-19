@@ -76,6 +76,16 @@ export const OpenAI = ({ apiConfiguration, setApiConfigurationField, selectedMod
 				</VSCodeButtonLink>
 			)}
 
+			<Checkbox
+				className="mt-4"
+				checked={!!apiConfiguration.openAiNativeWebSearchPreview}
+				onChange={(checked: boolean) => setApiConfigurationField("openAiNativeWebSearchPreview", checked)}>
+				{t("settings:providers.openAiNativeParameters.webSearchPreview.title")}
+			</Checkbox>
+			<div className="text-sm text-vscode-descriptionForeground mb-3 mt-1.5">
+				{t("settings:providers.openAiNativeParameters.webSearchPreview.description")}
+			</div>
+
 			{(() => {
 				const allowedTiers = (selectedModelInfo?.tiers?.map((t) => t.name).filter(Boolean) || []).filter(
 					(t) => t === "flex" || t === "priority",
