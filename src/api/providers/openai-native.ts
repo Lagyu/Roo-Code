@@ -724,7 +724,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 				...metadata.tools
 					.filter((tool) => tool.type === "function")
 					.map((tool) => ({
-						type: "function",
+						type: "function" as const,
 						name: tool.function.name,
 						description: tool.function.description,
 						parameters: ensureAllRequired(tool.function.parameters),
