@@ -110,6 +110,7 @@ interface ChatRowProps {
 	onBatchFileResponse?: (response: { [key: string]: boolean }) => void
 	onFollowUpUnmount?: () => void
 	isFollowUpAnswered?: boolean
+	isFollowUpAutoApprovalPaused?: boolean
 	editable?: boolean
 	hasCheckpoint?: boolean
 }
@@ -163,6 +164,7 @@ export const ChatRowContent = ({
 	onFollowUpUnmount,
 	onBatchFileResponse,
 	isFollowUpAnswered,
+	isFollowUpAutoApprovalPaused,
 }: ChatRowContentProps) => {
 	const { t, i18n } = useTranslation()
 
@@ -1111,6 +1113,7 @@ export const ChatRowContent = ({
 											? "https://github.com/cline/cline/wiki/TroubleShooting-%E2%80%90-%22PowerShell-is-not-recognized-as-an-internal-or-external-command%22"
 											: undefined
 									}
+									errorDetails={apiReqStreamingFailedMessage}
 								/>
 							)}
 						</>
@@ -1128,43 +1131,49 @@ export const ChatRowContent = ({
 
 						const rawLower = rawError.toLowerCase()
 
-						// Try to show richer error message for that code, if available
-						const codeMatch = rawError.match(/^(\d{3})\b/)
-						const potentialCode = codeMatch ? parseInt(codeMatch[1], 10) : NaN
-						if (!isNaN(potentialCode) && potentialCode >= 400) {
-							code = potentialCode
-							const stringForError = `chat:apiRequest.errorMessage.${code}`
-							if (i18n.exists(stringForError)) {
-								body = t(stringForError)
-								// Fill this out in upcoming PRs
-								// Do not remove this
-								// switch(code) {
-								// 	case ERROR_CODE:
-								// 		docsURL = ???
-								// 		break;
-								// }
+						// Check for Claude Code authentication error first
+						if (rawError.includes("Not authenticated with Claude Code")) {
+							body = t("chat:apiRequest.errorMessage.claudeCodeNotAuthenticated")
+							docsURL = "roocode://settings?provider=claude-code"
+						} else {
+							// Try to show richer error message for that code, if available
+							const codeMatch = rawError.match(/^(\d{3})\b/)
+							const potentialCode = codeMatch ? parseInt(codeMatch[1], 10) : NaN
+							if (!isNaN(potentialCode) && potentialCode >= 400) {
+								code = potentialCode
+								const stringForError = `chat:apiRequest.errorMessage.${code}`
+								if (i18n.exists(stringForError)) {
+									body = t(stringForError)
+									// Fill this out in upcoming PRs
+									// Do not remove this
+									// switch(code) {
+									// 	case ERROR_CODE:
+									// 		docsURL = ???
+									// 		break;
+									// }
+								} else {
+									body = t("chat:apiRequest.errorMessage.unknown")
+									docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
+								}
+							} else if (rawLower.startsWith("connection error")) {
+								body = t("chat:apiRequest.errorMessage.connection")
+							} else if (rawLower.startsWith("rate limiting for")) {
+								// Provider-level client rate limiting countdown (not an API failure)
+								body = rawError
+							} else if (
+								rawLower.includes("too many requests") ||
+								rawLower.includes("rate limit") ||
+								rawLower.includes("rate_limit") ||
+								rawLower.includes("throttl")
+							) {
+								// Some providers (notably Azure background polling) surface throttling as HTTP 200 + body error.
+								// Avoid showing an HTTP 429 code in the UI when the underlying HTTP status isn't 429.
+								body = t("chat:apiRequest.errorMessage.429")
 							} else {
+								// Non-HTTP-status-code error message - store full text as errorDetails
 								body = t("chat:apiRequest.errorMessage.unknown")
 								docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 							}
-						} else if (rawLower.startsWith("connection error")) {
-							body = t("chat:apiRequest.errorMessage.connection")
-						} else if (rawLower.startsWith("rate limiting for")) {
-							// Provider-level client rate limiting countdown (not an API failure)
-							body = rawError
-						} else if (
-							rawLower.includes("too many requests") ||
-							rawLower.includes("rate limit") ||
-							rawLower.includes("rate_limit") ||
-							rawLower.includes("throttl")
-						) {
-							// Some providers (notably Azure background polling) surface throttling as HTTP 200 + body error.
-							// Avoid showing an HTTP 429 code in the UI when the underlying HTTP status isn't 429.
-							body = t("chat:apiRequest.errorMessage.429")
-						} else {
-							// Non-HTTP-status-code error message - store full text as errorDetails
-							body = t("chat:apiRequest.errorMessage.unknown")
-							docsURL = "mailto:support@roocode.com?subject=Unknown API Error"
 						}
 
 						retryInfo = retryTimer > 0 && (
@@ -1298,7 +1307,22 @@ export const ChatRowContent = ({
 						</div>
 					)
 				case "error":
-					return <ErrorRow type="error" message={t("chat:error")} errorDetails={message.text || undefined} />
+					// Check if this is a model response error based on marker strings from backend
+					const isNoToolsUsedError = message.text === "MODEL_NO_TOOLS_USED"
+
+					if (isNoToolsUsedError) {
+						return (
+							<ErrorRow
+								type="error"
+								title={t("chat:modelResponseIncomplete")}
+								message={t("chat:modelResponseErrors.noToolsUsed")}
+								errorDetails={t("chat:modelResponseErrors.noToolsUsedDetails")}
+							/>
+						)
+					}
+
+					// Fallback for generic errors
+					return <ErrorRow type="error" message={message.text || t("chat:error")} />
 				case "completion_result":
 					return (
 						<>
@@ -1592,6 +1616,7 @@ export const ChatRowContent = ({
 									ts={message?.ts}
 									onCancelAutoApproval={onFollowUpUnmount}
 									isAnswered={isFollowUpAnswered}
+									isFollowUpAutoApprovalPaused={isFollowUpAutoApprovalPaused}
 								/>
 							</div>
 						</>

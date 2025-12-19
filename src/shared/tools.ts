@@ -72,9 +72,10 @@ export const toolParamNames = [
 	"files", // Native protocol parameter for read_file
 	"operations", // search_and_replace parameter for multiple operations
 	"patch", // apply_patch parameter
-	"file_path", // search_replace parameter
-	"old_string", // search_replace parameter
-	"new_string", // search_replace parameter
+	"file_path", // search_replace and edit_file parameter
+	"old_string", // search_replace and edit_file parameter
+	"new_string", // search_replace and edit_file parameter
+	"expected_replacements", // edit_file parameter for multiple occurrences
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]
@@ -93,6 +94,7 @@ export type NativeToolArgs = {
 	apply_diff: { path: string; diff: string }
 	search_and_replace: { path: string; operations: Array<{ search: string; replace: string }> }
 	search_replace: { file_path: string; old_string: string; new_string: string }
+	edit_file: { file_path: string; old_string: string; new_string: string; expected_replacements?: number }
 	apply_patch: { patch: string }
 	ask_followup_question: {
 		question: string
@@ -120,6 +122,12 @@ export interface ToolUse<TName extends ToolName = ToolName> {
 	type: "tool_use"
 	id?: string // Optional ID to track tool calls
 	name: TName
+	/**
+	 * The original tool name as called by the model (e.g. an alias like "edit_file"),
+	 * if it differs from the canonical tool name used for execution.
+	 * Used to preserve tool names in API conversation history.
+	 */
+	originalName?: string
 	// params is a partial record, allowing only some or none of the possible parameters to be used
 	params: Partial<Record<ToolParamName, string>>
 	partial: boolean
@@ -243,6 +251,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	apply_diff: "apply changes",
 	search_and_replace: "apply changes using search and replace",
 	search_replace: "apply single search and replace",
+	edit_file: "edit files using search and replace",
 	apply_patch: "apply patches using codex format",
 	search_files: "search files",
 	list_files: "list files",
@@ -266,7 +275,7 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 	},
 	edit: {
 		tools: ["apply_diff", "write_to_file", "generate_image"],
-		customTools: ["search_and_replace", "search_replace", "apply_patch"],
+		customTools: ["search_and_replace", "search_replace", "edit_file", "apply_patch"],
 	},
 	browser: {
 		tools: ["browser_action"],
@@ -292,6 +301,20 @@ export const ALWAYS_AVAILABLE_TOOLS: ToolName[] = [
 	"update_todo_list",
 	"run_slash_command",
 ] as const
+
+/**
+ * Central registry of tool aliases.
+ * Maps alias name -> canonical tool name.
+ *
+ * This allows models to use alternative names for tools (e.g., "edit_file" instead of "apply_diff").
+ * When a model calls a tool by its alias, the system resolves it to the canonical name for execution,
+ * but preserves the alias in API conversation history for consistency.
+ *
+ * To add a new alias, simply add an entry here. No other files need to be modified.
+ */
+export const TOOL_ALIASES: Record<string, ToolName> = {
+	write_file: "write_to_file",
+} as const
 
 export type DiffResult =
 	| { success: true; content: string; failParts?: DiffResult[] }

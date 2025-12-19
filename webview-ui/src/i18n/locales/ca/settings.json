@@ -202,11 +202,6 @@
 			"label": "Navegador",
 			"description": "Realitzar accions del navegador automàticament sense requerir aprovació. Nota: Només s'aplica quan el model admet l'ús de l'ordinador"
 		},
-		"retry": {
-			"label": "Reintentar",
-			"description": "Tornar a intentar sol·licituds d'API fallides automàticament quan el servidor retorna una resposta d'error",
-			"delayLabel": "Retard abans de tornar a intentar la sol·licitud"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Habilitar l'aprovació automàtica d'eines MCP individuals a la vista de Servidors MCP (requereix tant aquesta configuració com la casella \"Permetre sempre\" de l'eina)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Introduïu prefix de comanda a denegar (ex. 'rm -rf')",
 			"addButton": "Afegir",
 			"autoDenied": "Les comandes amb el prefix `{{prefix}}` han estat prohibides per l'usuari. No eludeixis aquesta restricció executant una altra comanda."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "La llista de tasques es actualitza automàticament sense aprovació"
 		},
 		"apiRequestLimit": {
 			"title": "Màximes Sol·licituds",
@@ -378,6 +369,14 @@
 		"awsRegion": "Regió d'AWS",
 		"awsCrossRegion": "Utilitzar inferència entre regions",
 		"awsGlobalInference": "Utilitzar la inferència global (selecció automàtica de la regió òptima d'AWS)",
+		"awsServiceTier": "Nivell de servei",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "Rendiment i cost equilibrats",
+		"awsServiceTierFlex": "Flex (50% de descompte)",
+		"awsServiceTierFlexDesc": "Cost menor, latència més alta per a tasques no crítiques",
+		"awsServiceTierPriority": "Priority (75% de sobrecost)",
+		"awsServiceTierPriorityDesc": "Rendiment més ràpid per a aplicacions crítiques",
+		"awsServiceTierNote": "Els nivells de servei afecten als preus i al rendiment. Flex ofereix un 50% de descompte amb latència més alta, Priority ofereix un 25% de millor rendiment amb un 75% de sobrecost.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Utilitzar punt final VPC personalitzat",
 			"vpcEndpointUrlPlaceholder": "Introduïu l'URL del punt final VPC (opcional)",

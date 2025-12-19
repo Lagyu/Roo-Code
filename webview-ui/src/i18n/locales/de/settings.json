@@ -202,11 +202,6 @@
 			"label": "Browser",
 			"description": "Browser-Aktionen automatisch ohne Genehmigung durchführen. Hinweis: Gilt nur, wenn das Modell Computer-Nutzung unterstützt"
 		},
-		"retry": {
-			"label": "Wiederholung",
-			"description": "Fehlgeschlagene API-Anfragen automatisch wiederholen, wenn der Server eine Fehlerantwort zurückgibt",
-			"delayLabel": "Verzögerung vor dem Wiederholen der Anfrage"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Automatische Genehmigung einzelner MCP-Tools in der MCP-Server-Ansicht aktivieren (erfordert sowohl diese Einstellung als auch das 'Immer erlauben'-Kontrollkästchen des Tools)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Befehlspräfix zum Verweigern eingeben (z.B. 'rm -rf')",
 			"addButton": "Hinzufügen",
 			"autoDenied": "Befehle mit dem Präfix `{{prefix}}` wurden vom Benutzer verboten. Umgehe diese Beschränkung nicht durch das Ausführen eines anderen Befehls."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "To-Do-Liste wird automatisch aktualisiert, ohne dass du zustimmen musst"
 		},
 		"apiRequestLimit": {
 			"title": "Maximale Anfragen",
@@ -378,6 +369,14 @@
 		"awsRegion": "AWS Region",
 		"awsCrossRegion": "Regionsübergreifende Inferenz verwenden",
 		"awsGlobalInference": "Globale Inferenz verwenden (optimale AWS-Region automatisch auswählen)",
+		"awsServiceTier": "Service-Stufe",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "Ausgewogene Leistung und Kosten",
+		"awsServiceTierFlex": "Flex (50% Rabatt)",
+		"awsServiceTierFlexDesc": "Niedrigere Kosten, höhere Latenz für unkritische Aufgaben",
+		"awsServiceTierPriority": "Priorität (75% Aufschlag)",
+		"awsServiceTierPriorityDesc": "Schnellste Leistung für geschäftskritische Anwendungen",
+		"awsServiceTierNote": "Service-Stufen beeinflussen Preisgestaltung und Leistung. Flex bietet 50% Rabatt mit höherer Latenz, Priorität bietet 25% bessere Leistung mit 75% Aufschlag.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Benutzerdefinierten VPC-Endpunkt verwenden",
 			"vpcEndpointUrlPlaceholder": "VPC-Endpunkt-URL eingeben (optional)",

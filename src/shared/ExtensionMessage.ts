@@ -132,6 +132,7 @@ export interface ExtensionMessage {
 		| "interactionRequired"
 		| "browserSessionUpdate"
 		| "browserSessionNavigate"
+		| "claudeCodeRateLimits"
 	text?: string
 	payload?: any // Add a generic payload for now, can refine later
 	// Checkpoint warning message
@@ -233,13 +234,11 @@ export type ExtensionState = Pick<
 	| "alwaysAllowWriteOutsideWorkspace"
 	| "alwaysAllowWriteProtected"
 	| "alwaysAllowBrowser"
-	| "alwaysApproveResubmit"
 	| "alwaysAllowMcp"
 	| "alwaysAllowModeSwitch"
 	| "alwaysAllowSubtasks"
 	| "alwaysAllowFollowupQuestions"
 	| "alwaysAllowExecute"
-	| "alwaysAllowUpdateTodoList"
 	| "followupAutoApproveTimeoutMs"
 	| "allowedCommands"
 	| "deniedCommands"
@@ -290,6 +289,7 @@ export type ExtensionState = Pick<
 	| "includeCurrentTime"
 	| "includeCurrentCost"
 	| "maxGitStatusFiles"
+	| "requestDelaySeconds"
 > & {
 	version: string
 	clineMessages: ClineMessage[]
@@ -302,7 +302,6 @@ export type ExtensionState = Pick<
 	taskHistory: HistoryItem[]
 
 	writeDelayMs: number
-	requestDelaySeconds: number
 
 	enableCheckpoints: boolean
 	checkpointTimeout: number // Timeout for checkpoint initialization in seconds (default: 15)
@@ -336,6 +335,7 @@ export type ExtensionState = Pick<
 	cloudApiUrl?: string
 	cloudOrganizations?: CloudOrganizationMembership[]
 	sharingEnabled: boolean
+	publicSharingEnabled: boolean
 	organizationAllowList: OrganizationAllowList
 	organizationSettingsVersion?: number
 
@@ -358,6 +358,7 @@ export type ExtensionState = Pick<
 	remoteControlEnabled: boolean
 	taskSyncEnabled: boolean
 	featureRoomoteControlEnabled: boolean
+	claudeCodeIsAuthenticated?: boolean
 	debug?: boolean
 }
 

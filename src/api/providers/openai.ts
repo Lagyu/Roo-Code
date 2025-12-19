@@ -32,7 +32,7 @@ import { handleOpenAIError } from "./utils/openai-error-handler"
 // compatible with the OpenAI API. We can also rename it to `OpenAIHandler`.
 export class OpenAiHandler extends BaseProvider implements SingleCompletionHandler {
 	protected options: ApiHandlerOptions
-	private client: OpenAI
+	protected client: OpenAI
 	private readonly providerName = "OpenAI"
 	private currentRequestLogId?: string
 
@@ -569,7 +569,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 		}
 	}
 
-	private _getUrlHost(baseUrl?: string): string {
+	protected _getUrlHost(baseUrl?: string): string {
 		try {
 			return new URL(baseUrl ?? "").host
 		} catch (error) {
@@ -582,7 +582,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 		return urlHost.includes("x.ai")
 	}
 
-	private _isAzureAiInference(baseUrl?: string): boolean {
+	protected _isAzureAiInference(baseUrl?: string): boolean {
 		const urlHost = this._getUrlHost(baseUrl)
 		return urlHost.endsWith(".services.ai.azure.com")
 	}

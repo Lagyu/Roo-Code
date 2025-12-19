@@ -3,13 +3,17 @@ import { serializeError } from "serialize-error"
 import { Anthropic } from "@anthropic-ai/sdk"
 
 import type { ToolName, ClineAsk, ToolProgressStatus } from "@roo-code/types"
+import { ConsecutiveMistakeError } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
+
+import { t } from "../../i18n"
 
 import { defaultModeSlug, getModeBySlug } from "../../shared/modes"
 import type { ToolParamName, ToolResponse, ToolUse, McpToolUse } from "../../shared/tools"
-import { Package } from "../../shared/package"
-import { t } from "../../i18n"
+import { experiments, EXPERIMENT_IDS } from "../../shared/experiments"
+
 import { AskIgnoredError } from "../task/AskIgnoredError"
+import { Task } from "../task/Task"
 
 import { fetchInstructionsTool } from "../tools/FetchInstructionsTool"
 import { listFilesTool } from "../tools/ListFilesTool"
@@ -20,6 +24,7 @@ import { writeToFileTool } from "../tools/WriteToFileTool"
 import { applyDiffTool } from "../tools/MultiApplyDiffTool"
 import { searchAndReplaceTool } from "../tools/SearchAndReplaceTool"
 import { searchReplaceTool } from "../tools/SearchReplaceTool"
+import { editFileTool } from "../tools/EditFileTool"
 import { applyPatchTool } from "../tools/ApplyPatchTool"
 import { searchFilesTool } from "../tools/SearchFilesTool"
 import { browserActionTool } from "../tools/BrowserActionTool"
@@ -30,17 +35,14 @@ import { askFollowupQuestionTool } from "../tools/AskFollowupQuestionTool"
 import { switchModeTool } from "../tools/SwitchModeTool"
 import { attemptCompletionTool, AttemptCompletionCallbacks } from "../tools/AttemptCompletionTool"
 import { newTaskTool } from "../tools/NewTaskTool"
-
 import { updateTodoListTool } from "../tools/UpdateTodoListTool"
 import { runSlashCommandTool } from "../tools/RunSlashCommandTool"
 import { generateImageTool } from "../tools/GenerateImageTool"
+import { applyDiffTool as applyDiffToolClass } from "../tools/ApplyDiffTool"
+import { validateToolUse } from "../tools/validateToolUse"
+import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
-import { validateToolUse } from "../tools/validateToolUse"
-import { Task } from "../task/Task"
-import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
-import { experiments, EXPERIMENT_IDS } from "../../shared/experiments"
-import { applyDiffTool as applyDiffToolClass } from "../tools/ApplyDiffTool"
 
 /**
  * Processes and presents assistant message content to the user interface.
@@ -241,6 +243,18 @@ export async function presentAssistantMessage(cline: Task) {
 				TelemetryService.instance.captureToolUsage(cline.taskId, "use_mcp_tool", toolProtocol)
 			}
 
+			// Resolve sanitized server name back to original server name
+			// The serverName from parsing is sanitized (e.g., "my_server" from "my server")
+			// We need the original name to find the actual MCP connection
+			const mcpHub = cline.providerRef.deref()?.getMcpHub()
+			let resolvedServerName = mcpBlock.serverName
+			if (mcpHub) {
+				const originalName = mcpHub.findServerNameBySanitizedName(mcpBlock.serverName)
+				if (originalName) {
+					resolvedServerName = originalName
+				}
+			}
+
 			// Execute the MCP tool using the same handler as use_mcp_tool
 			// Create a synthetic ToolUse block that the useMcpToolTool can handle
 			const syntheticToolUse: ToolUse<"use_mcp_tool"> = {
@@ -248,13 +262,13 @@ export async function presentAssistantMessage(cline: Task) {
 				id: mcpBlock.id,
 				name: "use_mcp_tool",
 				params: {
-					server_name: mcpBlock.serverName,
+					server_name: resolvedServerName,
 					tool_name: mcpBlock.toolName,
 					arguments: JSON.stringify(mcpBlock.arguments),
 				},
 				partial: mcpBlock.partial,
 				nativeArgs: {
-					server_name: mcpBlock.serverName,
+					server_name: resolvedServerName,
 					tool_name: mcpBlock.toolName,
 					arguments: mcpBlock.arguments,
 				},
@@ -341,7 +355,7 @@ export async function presentAssistantMessage(cline: Task) {
 		case "tool_use": {
 			// Fetch state early so it's available for toolDescription and validation
 			const state = await cline.providerRef.deref()?.getState()
-			const { mode, customModes, experiments: stateExperiments, apiConfiguration } = state ?? {}
+			const { mode, customModes, experiments: stateExperiments } = state ?? {}
 
 			const toolDescription = (): string => {
 				switch (block.name) {
@@ -390,6 +404,8 @@ export async function presentAssistantMessage(cline: Task) {
 					case "search_and_replace":
 						return `[${block.name} for '${block.params.path}']`
 					case "search_replace":
+						return `[${block.name} for '${block.params.file_path}']`
+					case "edit_file":
 						return `[${block.name} for '${block.params.file_path}']`
 					case "apply_patch":
 						return `[${block.name}]`
@@ -695,7 +711,11 @@ export async function presentAssistantMessage(cline: Task) {
 			// potentially causing the stream to appear frozen.
 			if (!block.partial) {
 				const modelInfo = cline.api.getModel()
-				const includedTools = modelInfo?.info?.includedTools
+				// Resolve aliases in includedTools before validation
+				// e.g., "edit_file" should resolve to "apply_diff"
+				const rawIncludedTools = modelInfo?.info?.includedTools
+				const { resolveToolAlias } = await import("../prompts/tools/filter-tools-for-mode")
+				const includedTools = rawIncludedTools?.map((tool) => resolveToolAlias(tool))
 
 				try {
 					validateToolUse(
@@ -715,6 +735,7 @@ export async function presentAssistantMessage(cline: Task) {
 					// This prevents the stream from being interrupted with "Response interrupted by tool use result"
 					// which would cause the extension to appear to hang
 					const errorContent = formatResponse.toolError(error.message, toolProtocol)
+
 					if (toolProtocol === TOOL_PROTOCOL.NATIVE && toolCallId) {
 						// For native protocol, push tool_result directly without setting didAlreadyUseTool
 						cline.userMessageContent.push({
@@ -727,6 +748,7 @@ export async function presentAssistantMessage(cline: Task) {
 						// For XML protocol, use the standard pushToolResult
 						pushToolResult(errorContent)
 					}
+
 					break
 				}
 			}
@@ -757,10 +779,21 @@ export async function presentAssistantMessage(cline: Task) {
 
 						// Add user feedback to chat.
 						await cline.say("user_feedback", text, images)
-
-						// Track tool repetition in telemetry.
-						TelemetryService.instance.captureConsecutiveMistakeError(cline.taskId)
 					}
+
+					// Track tool repetition in telemetry via PostHog exception tracking and event.
+					TelemetryService.instance.captureConsecutiveMistakeError(cline.taskId)
+					TelemetryService.instance.captureException(
+						new ConsecutiveMistakeError(
+							`Tool repetition limit reached for ${block.name}`,
+							cline.taskId,
+							cline.consecutiveMistakeCount,
+							cline.consecutiveMistakeLimit,
+							"tool_repetition",
+							cline.apiConfiguration.apiProvider,
+							cline.api.getModel().id,
+						),
+					)
 
 					// Return tool result message about the repetition
 					pushToolResult(
@@ -847,6 +880,16 @@ export async function presentAssistantMessage(cline: Task) {
 				case "search_replace":
 					await checkpointSaveAndMark(cline)
 					await searchReplaceTool.handle(cline, block as ToolUse<"search_replace">, {
+						askApproval,
+						handleError,
+						pushToolResult,
+						removeClosingTag,
+						toolProtocol,
+					})
+					break
+				case "edit_file":
+					await checkpointSaveAndMark(cline)
+					await editFileTool.handle(cline, block as ToolUse<"edit_file">, {
 						askApproval,
 						handleError,
 						pushToolResult,

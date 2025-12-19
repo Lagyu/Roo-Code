@@ -18,6 +18,7 @@ import {
 	vscodeLlmModels,
 	vscodeLlmDefaultModelId,
 	claudeCodeModels,
+	normalizeClaudeCodeModelId,
 	sambaNovaModels,
 	doubaoModels,
 	internationalZAiModels,
@@ -27,6 +28,7 @@ import {
 	ioIntelligenceModels,
 	basetenModels,
 	qwenCodeModels,
+	litellmDefaultModelInfo,
 	BEDROCK_1M_CONTEXT_MODEL_IDS,
 	isDynamicProvider,
 	getProviderDefaultModelId,
@@ -164,7 +166,13 @@ function getSelectedModel({
 		}
 		case "litellm": {
 			const id = getValidatedModelId(apiConfiguration.litellmModelId, routerModels.litellm, defaultModelId)
-			const info = routerModels.litellm?.[id]
+			const routerInfo = routerModels.litellm?.[id]
+			// Only merge native tool call defaults, not prices or other model-specific info
+			const nativeToolDefaults = {
+				supportsNativeTools: litellmDefaultModelInfo.supportsNativeTools,
+				defaultToolProtocol: litellmDefaultModelInfo.defaultToolProtocol,
+			}
+			const info = routerInfo ? { ...nativeToolDefaults, ...routerInfo } : litellmDefaultModelInfo
 			return { id, info }
 		}
 		case "xai": {
@@ -313,9 +321,11 @@ function getSelectedModel({
 		}
 		case "claude-code": {
 			// Claude Code models extend anthropic models but with images and prompt caching disabled
-			const id = apiConfiguration.apiModelId ?? defaultModelId
-			const info = claudeCodeModels[id as keyof typeof claudeCodeModels]
-			return { id, info: { ...openAiModelInfoSaneDefaults, ...info } }
+			// Normalize legacy model IDs to current canonical model IDs for backward compatibility
+			const rawId = apiConfiguration.apiModelId ?? defaultModelId
+			const normalizedId = normalizeClaudeCodeModelId(rawId)
+			const info = claudeCodeModels[normalizedId]
+			return { id: normalizedId, info: { ...openAiModelInfoSaneDefaults, ...info } }
 		}
 		case "cerebras": {
 			const id = apiConfiguration.apiModelId ?? defaultModelId

@@ -202,11 +202,6 @@
 			"label": "Trình duyệt",
 			"description": "Tự động thực hiện các hành động trình duyệt mà không cần phê duyệt. Lưu ý: Chỉ áp dụng khi mô hình hỗ trợ sử dụng máy tính"
 		},
-		"retry": {
-			"label": "Thử lại",
-			"description": "Tự động thử lại các yêu cầu API thất bại khi máy chủ trả về phản hồi lỗi",
-			"delayLabel": "Trì hoãn trước khi thử lại yêu cầu"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Bật tự động phê duyệt các công cụ MCP riêng lẻ trong chế độ xem Máy chủ MCP (yêu cầu cả cài đặt này và hộp kiểm \"Luôn cho phép\" của công cụ)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Nhập tiền tố lệnh để từ chối (ví dụ: 'rm -rf')",
 			"addButton": "Thêm",
 			"autoDenied": "Các lệnh có tiền tố `{{prefix}}` đã bị người dùng cấm. Đừng vượt qua hạn chế này bằng cách chạy lệnh khác."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "Danh sách việc cần làm được cập nhật tự động mà không cần phê duyệt"
 		},
 		"apiRequestLimit": {
 			"title": "Số lượng yêu cầu tối đa",
@@ -378,6 +369,14 @@
 		"awsRegion": "Vùng AWS",
 		"awsCrossRegion": "Sử dụng suy luận liên vùng",
 		"awsGlobalInference": "Sử dụng suy luận toàn cầu (tự động chọn Khu vực AWS tối ưu)",
+		"awsServiceTier": "Cấp độ dịch vụ",
+		"awsServiceTierStandard": "Tiêu chuẩn",
+		"awsServiceTierStandardDesc": "Hiệu suất và chi phí cân bằng",
+		"awsServiceTierFlex": "Linh hoạt (giảm giá 50%)",
+		"awsServiceTierFlexDesc": "Chi phí thấp hơn, độ trễ cao hơn cho các tác vụ không quan trọng",
+		"awsServiceTierPriority": "Ưu tiên (Phí thêm 75%)",
+		"awsServiceTierPriorityDesc": "Hiệu suất nhanh nhất cho các ứng dụng quan trọng",
+		"awsServiceTierNote": "Các cấp độ dịch vụ ảnh hưởng đến giá và hiệu suất. Linh hoạt cung cấp giảm giá 50% với độ trễ cao hơn, Ưu tiên cung cấp hiệu suất tốt hơn 25% với phí thêm 75%.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Sử dụng điểm cuối VPC tùy chỉnh",
 			"vpcEndpointUrlPlaceholder": "Nhập URL điểm cuối VPC (tùy chọn)",

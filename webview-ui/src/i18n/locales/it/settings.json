@@ -202,11 +202,6 @@
 			"label": "Browser",
 			"description": "Esegui automaticamente azioni del browser senza richiedere approvazione. Nota: Si applica solo quando il modello supporta l'uso del computer"
 		},
-		"retry": {
-			"label": "Riprova",
-			"description": "Riprova automaticamente le richieste API fallite quando il server restituisce una risposta di errore",
-			"delayLabel": "Ritardo prima di riprovare la richiesta"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Abilita l'approvazione automatica dei singoli strumenti MCP nella vista Server MCP (richiede sia questa impostazione che la casella \"Consenti sempre\" dello strumento)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Inserisci prefisso comando da negare (es. 'rm -rf')",
 			"addButton": "Aggiungi",
 			"autoDenied": "I comandi con il prefisso `{{prefix}}` sono stati vietati dall'utente. Non aggirare questa restrizione eseguendo un altro comando."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "La lista delle cose da fare viene aggiornata automaticamente senza approvazione"
 		},
 		"apiRequestLimit": {
 			"title": "Richieste massime",
@@ -378,6 +369,14 @@
 		"awsRegion": "Regione AWS",
 		"awsCrossRegion": "Usa inferenza cross-regione",
 		"awsGlobalInference": "Usa l'inferenza globale (selezione automatica della regione AWS ottimale)",
+		"awsServiceTier": "Livello di servizio",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "Prestazioni e costo equilibrati",
+		"awsServiceTierFlex": "Flex (sconto del 50%)",
+		"awsServiceTierFlexDesc": "Costo inferiore, latenza più alta per attività non critiche",
+		"awsServiceTierPriority": "Priority (premio del 75%)",
+		"awsServiceTierPriorityDesc": "Prestazioni più veloci per applicazioni mission-critical",
+		"awsServiceTierNote": "I livelli di servizio influenzano i prezzi e le prestazioni. Flex offre uno sconto del 50% con latenza più alta, Priority offre il 25% di prestazioni migliori con un premio del 75%.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Usa endpoint VPC personalizzato",
 			"vpcEndpointUrlPlaceholder": "Inserisci URL endpoint VPC (opzionale)",

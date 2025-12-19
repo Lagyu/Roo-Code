@@ -202,11 +202,6 @@
 			"label": "Navegador",
 			"description": "Realizar acciones del navegador automáticamente sin requerir aprobación. Nota: Solo se aplica cuando el modelo admite el uso del ordenador"
 		},
-		"retry": {
-			"label": "Reintentar",
-			"description": "Reintentar automáticamente solicitudes de API fallidas cuando el servidor devuelve una respuesta de error",
-			"delayLabel": "Retraso antes de reintentar la solicitud"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Habilitar la aprobación automática de herramientas MCP individuales en la vista de Servidores MCP (requiere tanto esta configuración como la casilla \"Permitir siempre\" de la herramienta)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Ingrese prefijo de comando a denegar (ej. 'rm -rf')",
 			"addButton": "Añadir",
 			"autoDenied": "Los comandos con el prefijo `{{prefix}}` han sido prohibidos por el usuario. No eludes esta restricción ejecutando otro comando."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "La lista de tareas se actualiza automáticamente sin aprobación"
 		},
 		"apiRequestLimit": {
 			"title": "Solicitudes máximas",
@@ -378,6 +369,14 @@
 		"awsRegion": "Región de AWS",
 		"awsCrossRegion": "Usar inferencia entre regiones",
 		"awsGlobalInference": "Usar inferencia global (selección automática de la región óptima de AWS)",
+		"awsServiceTier": "Nivel de servicio",
+		"awsServiceTierStandard": "Estándar",
+		"awsServiceTierStandardDesc": "Rendimiento y costo equilibrados",
+		"awsServiceTierFlex": "Flexible (50% de descuento)",
+		"awsServiceTierFlexDesc": "Menor costo, mayor latencia para tareas no críticas",
+		"awsServiceTierPriority": "Prioridad (75% de prima)",
+		"awsServiceTierPriorityDesc": "Rendimiento más rápido para aplicaciones críticas",
+		"awsServiceTierNote": "Los niveles de servicio afectan los precios y rendimiento. Flexible ofrece 50% de descuento con mayor latencia, Prioridad ofrece 25% mejor rendimiento con 75% de prima.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Usar punto de conexión VPC personalizado",
 			"vpcEndpointUrlPlaceholder": "Ingrese URL del punto de conexión VPC (opcional)",

@@ -202,11 +202,6 @@
 			"label": "Przeglądarka",
 			"description": "Automatycznie wykonuj akcje przeglądarki bez konieczności zatwierdzania. Uwaga: Dotyczy tylko gdy model obsługuje używanie komputera"
 		},
-		"retry": {
-			"label": "Ponów",
-			"description": "Automatycznie ponawiaj nieudane żądania API, gdy serwer zwraca odpowiedź z błędem",
-			"delayLabel": "Opóźnienie przed ponowieniem żądania"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "Włącz automatyczne zatwierdzanie poszczególnych narzędzi MCP w widoku Serwerów MCP (wymaga zarówno tego ustawienia, jak i pola wyboru \"Zawsze zezwalaj\" narzędzia)"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "Wprowadź prefiks polecenia do odrzucenia (np. 'rm -rf')",
 			"addButton": "Dodaj",
 			"autoDenied": "Polecenia z prefiksem `{{prefix}}` zostały zabronione przez użytkownika. Nie obchodź tego ograniczenia uruchamiając inne polecenie."
-		},
-		"updateTodoList": {
-			"label": "Todo",
-			"description": "Lista zadań jest automatycznie aktualizowana bez zatwierdzenia"
 		},
 		"apiRequestLimit": {
 			"title": "Maksymalna liczba żądań",
@@ -378,6 +369,14 @@
 		"awsRegion": "Region AWS",
 		"awsCrossRegion": "Użyj wnioskowania międzyregionalnego",
 		"awsGlobalInference": "Użyj globalnej inferencji (automatyczny wybór optymalnego regionu AWS)",
+		"awsServiceTier": "Warstwa usługi",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "Zrównoważona wydajność i koszt",
+		"awsServiceTierFlex": "Flex (50% zniżka)",
+		"awsServiceTierFlexDesc": "Niższy koszt, wyższe opóźnienie dla zadań niekrytycznych",
+		"awsServiceTierPriority": "Priority (75% premia)",
+		"awsServiceTierPriorityDesc": "Najszybsza wydajność dla aplikacji krytycznych",
+		"awsServiceTierNote": "Warstwy usługi wpływają na ceny i wydajność. Flex oferuje 50% zniżkę z wyższym opóźnieniem, Priority oferuje 25% lepszą wydajność z 75% premią.",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "Użyj niestandardowego punktu końcowego VPC",
 			"vpcEndpointUrlPlaceholder": "Wprowadź URL punktu końcowego VPC (opcjonalnie)",

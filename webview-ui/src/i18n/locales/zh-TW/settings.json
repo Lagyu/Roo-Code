@@ -202,11 +202,6 @@
 			"label": "瀏覽器",
 			"description": "自動執行瀏覽器操作而無需核准 — 注意：僅適用於模型支援電腦使用時"
 		},
-		"retry": {
-			"label": "重試",
-			"description": "當伺服器回傳錯誤回應時自動重試失敗的 API 請求",
-			"delayLabel": "重試請求前的延遲"
-		},
 		"mcp": {
 			"label": "MCP",
 			"description": "在 MCP 伺服器檢視中啟用個別 MCP 工具的自動核准（需要此設定和工具的「始終允許」核取方塊）"
@@ -235,10 +230,6 @@
 			"deniedCommandPlaceholder": "輸入要拒絕的命令前綴（例如 'rm -rf'）",
 			"addButton": "新增",
 			"autoDenied": "前綴為 `{{prefix}}` 的命令已被使用者禁止。不要透過執行其他命令來繞過此限制。"
-		},
-		"updateTodoList": {
-			"label": "待辦",
-			"description": "自動更新待辦清單無需核准"
 		},
 		"apiRequestLimit": {
 			"title": "最大請求數",
@@ -378,6 +369,14 @@
 		"awsRegion": "AWS 區域",
 		"awsCrossRegion": "使用跨區域推論",
 		"awsGlobalInference": "使用全域推論 (自動選取最佳 AWS 區域)",
+		"awsServiceTier": "服務層級",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "效能和成本均衡",
+		"awsServiceTierFlex": "Flex (50% 折扣)",
+		"awsServiceTierFlexDesc": "低成本，非關鍵工作的延遲較高",
+		"awsServiceTierPriority": "Priority (75% 溢價)",
+		"awsServiceTierPriorityDesc": "為關鍵業務應用提供最快效能",
+		"awsServiceTierNote": "服務層級會影響定價和效能。Flex 提供 50% 折扣但延遲較高，Priority 提供 25% 更好的效能但費用溢價 75%。",
 		"awsBedrockVpc": {
 			"useCustomVpcEndpoint": "使用自訂 VPC 端點",
 			"vpcEndpointUrlPlaceholder": "輸入 VPC 端點 URL（選填）",

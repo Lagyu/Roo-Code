@@ -98,6 +98,7 @@ import { readTaskMessages } from "../task-persistence/taskMessages"
 import { getNonce } from "./getNonce"
 import { getUri } from "./getUri"
 import { REQUESTY_BASE_URL } from "../../shared/utils/requesty"
+import { validateAndFixToolResultIds } from "../task/validateToolResultIds"
 
 /**
  * https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -1816,7 +1817,6 @@ export class ClineProvider
 			alwaysAllowMcp,
 			alwaysAllowModeSwitch,
 			alwaysAllowSubtasks,
-			alwaysAllowUpdateTodoList,
 			allowedMaxRequests,
 			allowedMaxCost,
 			autoCondenseContext,
@@ -1848,8 +1848,6 @@ export class ClineProvider
 			fuzzyMatchThreshold,
 			mcpEnabled,
 			enableMcpServerCreation,
-			alwaysApproveResubmit,
-			requestDelaySeconds,
 			currentApiConfigName,
 			listApiConfigMeta,
 			pinnedApiConfigs,
@@ -1876,6 +1874,7 @@ export class ClineProvider
 			cloudUserInfo,
 			cloudIsAuthenticated,
 			sharingEnabled,
+			publicSharingEnabled,
 			organizationAllowList,
 			organizationSettingsVersion,
 			maxConcurrentFileReads,
@@ -1948,7 +1947,6 @@ export class ClineProvider
 			alwaysAllowMcp: alwaysAllowMcp ?? false,
 			alwaysAllowModeSwitch: alwaysAllowModeSwitch ?? false,
 			alwaysAllowSubtasks: alwaysAllowSubtasks ?? false,
-			alwaysAllowUpdateTodoList: alwaysAllowUpdateTodoList ?? false,
 			isBrowserSessionActive,
 			allowedMaxRequests,
 			allowedMaxCost,
@@ -1994,8 +1992,6 @@ export class ClineProvider
 			fuzzyMatchThreshold: fuzzyMatchThreshold ?? 1.0,
 			mcpEnabled: mcpEnabled ?? true,
 			enableMcpServerCreation: enableMcpServerCreation ?? true,
-			alwaysApproveResubmit: alwaysApproveResubmit ?? false,
-			requestDelaySeconds: requestDelaySeconds ?? 10,
 			currentApiConfigName: currentApiConfigName ?? "default",
 			listApiConfigMeta: listApiConfigMeta ?? [],
 			pinnedApiConfigs: pinnedApiConfigs ?? {},
@@ -2031,6 +2027,7 @@ export class ClineProvider
 			cloudIsAuthenticated: cloudIsAuthenticated ?? false,
 			cloudOrganizations,
 			sharingEnabled: sharingEnabled ?? false,
+			publicSharingEnabled: publicSharingEnabled ?? false,
 			organizationAllowList,
 			organizationSettingsVersion,
 			condensingApiConfigId,
@@ -2071,6 +2068,14 @@ export class ClineProvider
 			openRouterImageGenerationSelectedModel,
 			openRouterUseMiddleOutTransform,
 			featureRoomoteControlEnabled,
+			claudeCodeIsAuthenticated: await (async () => {
+				try {
+					const { claudeCodeOAuthManager } = await import("../../integrations/claude-code/oauth")
+					return await claudeCodeOAuthManager.isAuthenticated()
+				} catch {
+					return false
+				}
+			})(),
 			debug: vscode.workspace.getConfiguration(Package.name).get<boolean>("debug", false),
 		}
 	}
@@ -2146,6 +2151,16 @@ export class ClineProvider
 			)
 		}
 
+		let publicSharingEnabled: boolean = false
+
+		try {
+			publicSharingEnabled = await CloudService.instance.canSharePublicly()
+		} catch (error) {
+			console.error(
+				`[getState] failed to get public sharing enabled state: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+
 		let organizationSettingsVersion: number = -1
 
 		try {
@@ -2189,7 +2204,6 @@ export class ClineProvider
 			alwaysAllowModeSwitch: stateValues.alwaysAllowModeSwitch ?? false,
 			alwaysAllowSubtasks: stateValues.alwaysAllowSubtasks ?? false,
 			alwaysAllowFollowupQuestions: stateValues.alwaysAllowFollowupQuestions ?? false,
-			alwaysAllowUpdateTodoList: stateValues.alwaysAllowUpdateTodoList ?? false,
 			isBrowserSessionActive,
 			followupAutoApproveTimeoutMs: stateValues.followupAutoApproveTimeoutMs ?? 60000,
 			diagnosticsEnabled: stateValues.diagnosticsEnabled ?? true,
@@ -2232,8 +2246,6 @@ export class ClineProvider
 			mcpEnabled: stateValues.mcpEnabled ?? true,
 			enableMcpServerCreation: stateValues.enableMcpServerCreation ?? true,
 			mcpServers: this.mcpHub?.getAllServers() ?? [],
-			alwaysApproveResubmit: stateValues.alwaysApproveResubmit ?? false,
-			requestDelaySeconds: Math.max(5, stateValues.requestDelaySeconds ?? 10),
 			currentApiConfigName: stateValues.currentApiConfigName ?? "default",
 			listApiConfigMeta: stateValues.listApiConfigMeta ?? [],
 			pinnedApiConfigs: stateValues.pinnedApiConfigs ?? {},
@@ -2260,6 +2272,7 @@ export class ClineProvider
 			cloudUserInfo,
 			cloudIsAuthenticated,
 			sharingEnabled,
+			publicSharingEnabled,
 			organizationAllowList,
 			organizationSettingsVersion,
 			condensingApiConfigId: stateValues.condensingApiConfigId,
@@ -3161,6 +3174,15 @@ export class ClineProvider
 				],
 				ts,
 			})
+		}
+
+		// Validate the newly injected tool_result against the preceding assistant message.
+		// This ensures the tool_result's tool_use_id matches a tool_use in the immediately
+		// preceding assistant message (Anthropic API requirement).
+		const lastMessage = parentApiMessages[parentApiMessages.length - 1]
+		if (lastMessage?.role === "user") {
+			const validatedMessage = validateAndFixToolResultIds(lastMessage, parentApiMessages.slice(0, -1))
+			parentApiMessages[parentApiMessages.length - 1] = validatedMessage
 		}
 
 		await saveApiMessages({ messages: parentApiMessages as any, taskId: parentTaskId, globalStoragePath })
