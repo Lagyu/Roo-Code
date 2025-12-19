@@ -63,7 +63,23 @@ function formatError(error: unknown) {
 // - Redact common secret-bearing keys
 // - Truncate long strings (but keep array/object structure intact for debugging)
 // - Prevent pathological recursion (circular references / extremely deep objects)
-const MAX_STRING_LENGTH = 300
+const DEFAULT_MAX_STRING_LENGTH = 300
+
+function resolveMaxStringLength(raw: unknown): number {
+	if (raw === undefined || raw === null || raw === "") return DEFAULT_MAX_STRING_LENGTH
+	const parsed = typeof raw === "number" ? raw : Number(raw)
+	if (!Number.isFinite(parsed)) return DEFAULT_MAX_STRING_LENGTH
+	if (parsed <= 0) return Number.POSITIVE_INFINITY
+	return Math.floor(parsed)
+}
+
+let maxStringLength = resolveMaxStringLength(process.env.ROO_PROVIDER_LOG_MAX_STRING_LENGTH)
+
+export function setProviderLogMaxStringLength(value?: number) {
+	maxStringLength = resolveMaxStringLength(
+		typeof value === "number" ? value : process.env.ROO_PROVIDER_LOG_MAX_STRING_LENGTH,
+	)
+}
 const MAX_DEPTH = 50
 const SENSITIVE_KEY_SUBSTRINGS = ["authorization", "apikey", "api_key", "secret", "password"]
 
@@ -94,8 +110,8 @@ function sanitize(value: unknown, depth = 0, stack: WeakSet<object> = new WeakSe
 		if (value.startsWith("data:")) {
 			return `<data-uri length=${value.length}>`
 		}
-		if (value.length > MAX_STRING_LENGTH) {
-			return `${value.slice(0, MAX_STRING_LENGTH)}... [truncated ${value.length - MAX_STRING_LENGTH} chars]`
+		if (maxStringLength !== Number.POSITIVE_INFINITY && value.length > maxStringLength) {
+			return `${value.slice(0, maxStringLength)}... [truncated ${value.length - maxStringLength} chars]`
 		}
 		return value
 	}

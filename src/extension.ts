@@ -30,7 +30,11 @@ import { CodeIndexManager } from "./services/code-index/manager"
 import { MdmService } from "./services/mdm/MdmService"
 import { migrateSettings } from "./utils/migrateSettings"
 import { autoImportSettings } from "./utils/autoImportSettings"
-import { setProviderLogger, type ProviderLogEntry } from "./api/providers/provider-logger"
+import {
+	setProviderLogger,
+	setProviderLogMaxStringLength,
+	type ProviderLogEntry,
+} from "./api/providers/provider-logger"
 import { API } from "./extension/api"
 
 import {
@@ -70,10 +74,20 @@ export async function activate(context: vscode.ExtensionContext) {
 	const configureProviderLogging = () => {
 		const config = vscode.workspace.getConfiguration(Package.name)
 		const enabledSetting = config.get<boolean>("enableProviderLogging") ?? false
+		const maxStringLengthConfig = config.inspect<number>("providerLogMaxStringLength")
+		const hasExplicitMaxStringLengthSetting =
+			maxStringLengthConfig?.globalValue !== undefined ||
+			maxStringLengthConfig?.workspaceValue !== undefined ||
+			maxStringLengthConfig?.workspaceFolderValue !== undefined
+		const maxStringLengthSetting = hasExplicitMaxStringLengthSetting
+			? config.get<number>("providerLogMaxStringLength")
+			: undefined
 		const enabledEnv =
 			process.env.ROO_PROVIDER_LOGGING === "1" ||
 			process.env.ROO_PROVIDER_LOGGING === "true" ||
 			process.env.ROO_PROVIDER_LOGGING === "yes"
+
+		setProviderLogMaxStringLength(maxStringLengthSetting)
 
 		if (enabledSetting || enabledEnv) {
 			setProviderLogger((entry: ProviderLogEntry & { timestamp: number }) => {
@@ -117,7 +131,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration((event) => {
-			if (event.affectsConfiguration(`${Package.name}.enableProviderLogging`)) {
+			if (
+				event.affectsConfiguration(`${Package.name}.enableProviderLogging`) ||
+				event.affectsConfiguration(`${Package.name}.providerLogMaxStringLength`)
+			) {
 				configureProviderLogging()
 			}
 		}),

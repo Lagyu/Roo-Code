@@ -376,6 +376,12 @@
 					"default": false,
 					"description": "%settings.enableProviderLogging.description%"
 				},
+				"roo-cline.providerLogMaxStringLength": {
+					"type": "number",
+					"default": 300,
+					"minimum": 0,
+					"description": "%settings.providerLogMaxStringLength.description%"
+				},
 				"roo-cline.autoImportSettingsPath": {
 					"type": "string",
 					"default": "",
