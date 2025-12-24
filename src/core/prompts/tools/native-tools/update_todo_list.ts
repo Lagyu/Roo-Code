@@ -31,7 +31,7 @@ When NOT to Use:
 - Task can be completed in one or two simple steps
 - Request is purely conversational or informational`
 
-const TODOS_PARAMETER_DESCRIPTION = `Full markdown checklist in execution order, using [ ] for pending, [x] for completed, and [-] for in progress`
+const TODOS_PARAMETER_DESCRIPTION = `Full markdown checklist in execution order, using [ ] for pending, [x] for completed, and [-] for in progress.`
 
 export default {
 	type: "function",

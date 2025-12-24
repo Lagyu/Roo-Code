@@ -10,7 +10,7 @@ export function getUpdateTodoListDescription(args?: ToolArgs): string {
 Replace the entire TODO list with an updated checklist reflecting the current state. Always provide the full list; the system will overwrite the previous one. This tool is designed for step-by-step task tracking, allowing you to confirm completion of each step before updating, update multiple task statuses at once (e.g., mark one as completed and start the next), and dynamically add new todos discovered during long or complex tasks.
 
 **Checklist Format:**
-- Use a single-level markdown checklist (no nesting or subtasks).
+- Use a single-level markdown checklist by default (no nesting or subtasks)
 - List todos in the intended execution order.
 - Status options:
 	 - [ ] Task description (pending)
