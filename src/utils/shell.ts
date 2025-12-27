@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import { userInfo } from "os"
 import * as path from "path"
+import * as fs from "fs"
 
 // Security: Allowlist of approved shell executables to prevent arbitrary command execution
 const SHELL_ALLOWLIST = new Set<string>([
@@ -95,6 +96,7 @@ const SHELL_ALLOWLIST = new Set<string>([
 
 const SHELL_PATHS = {
 	// Windows paths
+	GIT_BASH_BIN: "C:\\Program Files\\Git\\bin\\bash.exe",
 	POWERSHELL_7: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
 	POWERSHELL_LEGACY: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
 	CMD: "C:\\Windows\\System32\\cmd.exe",
@@ -224,6 +226,15 @@ function getWindowsShellFromVSCode(): string | null {
 	return SHELL_PATHS.CMD
 }
 
+/** Prefer the user's Git Bash (bin\\bash.exe) when available. */
+function getPreferredWindowsShell(): string | null {
+	const preferred = SHELL_PATHS.GIT_BASH_BIN
+	if (fs.existsSync(preferred) && isShellAllowed(preferred)) {
+		return preferred
+	}
+	return null
+}
+
 /** Attempts to retrieve a shell path from VS Code config on macOS. */
 function getMacShellFromVSCode(): string | null {
 	const { defaultProfileName, profiles } = getMacTerminalConfig()
@@ -334,10 +345,10 @@ function getSafeFallbackShell(): string {
 export function getShell(): string {
 	let shell: string | null = null
 
-	// 1. Check VS Code config first.
+	// 1. Check preferred shell / VS Code config first.
 	if (process.platform === "win32") {
-		// Special logic for Windows
-		shell = getWindowsShellFromVSCode()
+		// Prefer Git Bash if available, otherwise use VS Code config
+		shell = getPreferredWindowsShell() ?? getWindowsShellFromVSCode()
 	} else if (process.platform === "darwin") {
 		// macOS from VS Code
 		shell = getMacShellFromVSCode()

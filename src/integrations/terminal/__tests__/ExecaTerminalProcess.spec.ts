@@ -2,6 +2,14 @@
 
 const mockPid = 12345
 
+vitest.mock("fs", () => ({
+	existsSync: vitest.fn(() => false),
+}))
+
+vitest.mock("../../../utils/shell", () => ({
+	getShell: vitest.fn(() => "C:\\Windows\\System32\\cmd.exe"),
+}))
+
 vitest.mock("execa", () => {
 	const mockKill = vitest.fn()
 	const execa = vitest.fn((options: any) => {
@@ -22,15 +30,19 @@ vitest.mock("ps-tree", () => ({
 }))
 
 import { execa } from "execa"
+import * as fs from "fs"
 import { ExecaTerminalProcess } from "../ExecaTerminalProcess"
 import type { RooTerminal } from "../types"
+import { getShell } from "../../../utils/shell"
 
 describe("ExecaTerminalProcess", () => {
 	let mockTerminal: RooTerminal
 	let terminalProcess: ExecaTerminalProcess
 	let originalEnv: NodeJS.ProcessEnv
+	let originalPlatform: string
 
 	beforeEach(() => {
+		originalPlatform = process.platform
 		originalEnv = { ...process.env }
 		mockTerminal = {
 			provider: "execa",
@@ -51,6 +63,7 @@ describe("ExecaTerminalProcess", () => {
 	})
 
 	afterEach(() => {
+		Object.defineProperty(process, "platform", { value: originalPlatform })
 		process.env = originalEnv
 		vitest.clearAllMocks()
 	})
@@ -117,6 +130,40 @@ describe("ExecaTerminalProcess", () => {
 			await terminalProcess.run("echo test")
 			expect(mockTerminal.setActiveStream).toHaveBeenCalledWith(expect.any(Object), mockPid)
 			expect(mockTerminal.setActiveStream).toHaveBeenLastCalledWith(undefined)
+		})
+	})
+
+	describe("Windows shell selection", () => {
+		it("uses Git Bash when getShell() resolves to bash.exe and it exists", async () => {
+			Object.defineProperty(process, "platform", { value: "win32" })
+			vitest.mocked(getShell).mockReturnValue("C:\\Program Files\\Git\\bin\\bash.exe")
+			vitest.mocked(fs.existsSync).mockReturnValue(true)
+
+			terminalProcess = new ExecaTerminalProcess(mockTerminal)
+			await terminalProcess.run("echo test")
+
+			const execaMock = vitest.mocked(execa)
+			expect(execaMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					shell: "C:\\Program Files\\Git\\bin\\bash.exe",
+				}),
+			)
+		})
+
+		it("does not force a non-bash shell path on Windows", async () => {
+			Object.defineProperty(process, "platform", { value: "win32" })
+			vitest.mocked(getShell).mockReturnValue("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")
+			vitest.mocked(fs.existsSync).mockReturnValue(true)
+
+			terminalProcess = new ExecaTerminalProcess(mockTerminal)
+			await terminalProcess.run("echo test")
+
+			const execaMock = vitest.mocked(execa)
+			expect(execaMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					shell: true,
+				}),
+			)
 		})
 	})
 })

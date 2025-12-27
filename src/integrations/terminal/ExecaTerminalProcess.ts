@@ -1,9 +1,32 @@
 import { execa, ExecaError } from "execa"
+import * as fs from "fs"
 import psTree from "ps-tree"
 import process from "process"
 
+import { getShell } from "../../utils/shell"
+
 import type { RooTerminal } from "./types"
 import { BaseTerminalProcess } from "./BaseTerminalProcess"
+
+function getInlineTerminalShellOption(): true | string {
+	// Inline terminal runs via execa with `shell: true` today.
+	// On Windows that defaults to cmd.exe, which does not match Roo's preferred
+	// shell detection (and breaks Unixy commands). Prefer Git Bash when available.
+	if (process.platform !== "win32") {
+		return true
+	}
+
+	const detectedShell = getShell()
+	const normalized = detectedShell.replace(/\//g, "\\").toLowerCase()
+
+	// Only force bash.exe here. (Other shells like PowerShell or wsl.exe need
+	// different invocation semantics than Node's generic `shell` support.)
+	if (normalized.endsWith("\\bash.exe") && fs.existsSync(detectedShell)) {
+		return detectedShell
+	}
+
+	return true
+}
 
 export class ExecaTerminalProcess extends BaseTerminalProcess {
 	private terminalRef: WeakRef<RooTerminal>
@@ -39,7 +62,7 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 			this.isHot = true
 
 			this.subprocess = execa({
-				shell: true,
+				shell: getInlineTerminalShellOption(),
 				cwd: this.terminal.getCurrentWorkingDirectory(),
 				all: true,
 				// Ignore stdin to ensure non-interactive mode and prevent hanging
