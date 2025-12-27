@@ -133,7 +133,7 @@
 		"streaming": "API-verzoek...",
 		"cancelled": "API-verzoek geannuleerd",
 		"streamingFailed": "API-streaming mislukt",
-		"errorTitle": "API-fout {{code}}",
+		"errorTitle": "Fout van provider {{code}}",
 		"errorMessage": {
 			"docs": "Documentatie",
 			"goToSettings": "Instellingen",
@@ -257,16 +257,20 @@
 	"modelResponseIncomplete": "Modelrespons onvolledig",
 	"modelResponseErrors": {
 		"noToolsUsed": "Het model heeft geen tools gebruikt in zijn reactie. Dit gebeurt meestal wanneer het model alleen tekst/redenering levert zonder de vereiste tools aan te roepen om de taak te voltooien.",
-		"noToolsUsedDetails": "Het model heeft tekst/redenering geleverd maar heeft geen van de vereiste tools aangeroepen. Dit geeft meestal aan dat het model de taak verkeerd heeft begrepen of moeite heeft om te bepalen welke tool te gebruiken. Het model is automatisch gevraagd om opnieuw te proberen met correct gebruik van tools."
+		"noToolsUsedDetails": "Het model heeft tekst/redenering geleverd maar heeft geen van de vereiste tools aangeroepen. Dit geeft meestal aan dat het model de taak verkeerd heeft begrepen of moeite heeft om te bepalen welke tool te gebruiken. Het model is automatisch gevraagd om opnieuw te proberen met correct gebruik van tools.",
+		"noAssistantMessages": "Het model heeft geen reactie-inhoud geleverd. Dit kan wijzen op een probleem met de API of de output van het model.",
+		"noAssistantMessagesDetails": "Het taalmodel heeft een lege reactie geretourneerd zonder tekst of tool-aanroepen. Dit kan gebeuren door API-problemen, snelheidslimieten of modelspecifieke problemen. Het model is automatisch gevraagd om opnieuw te proberen."
 	},
 	"diffError": {
 		"title": "Bewerking mislukt"
 	},
 	"troubleMessage": "Roo ondervindt problemen...",
 	"errorDetails": {
+		"link": "Details",
 		"title": "Foutdetails",
 		"copyToClipboard": "Naar klembord kopiëren",
-		"copied": "Gekopieerd!"
+		"copied": "Gekopieerd!",
+		"diagnostics": "Gedetailleerde foutinformatie ophalen"
 	},
 	"powershell": {
 		"issues": "Het lijkt erop dat je problemen hebt met Windows PowerShell, zie deze"
@@ -300,9 +304,10 @@
 			"goToSettingsButton": "Ga naar Instellingen"
 		},
 		"release": {
-			"heading": "Nieuw:",
-			"contextRewind": "Verbeterde context-samenvatting stelt je nu in staat om de volledige vorige context te herstellen bij het terugspoelen naar een checkpoint",
-			"rooProvider": "De Roo Code Cloud-provider behoudt nu reasoninginhoud en gebruikt standaard native tools voor betere prestaties"
+			"heading": "Wat is er nieuw:",
+			"minimaxM21": "Snelle en betaalbare MiniMax M2.1 model nu beschikbaar in Roo Code Cloud, MiniMax en meer",
+			"glm47": "Z.AI GLM-4.7 model met ondersteuning voor thinking mode toegevoegd aan Roo Code Cloud, Z.AI en meer",
+			"customTools": "Experimentele aangepaste tool-ondersteuning voor het definiëren van je eigen tools in TypeScript"
 		},
 		"cloudAgents": {
 			"heading": "Nieuw in de Cloud:",

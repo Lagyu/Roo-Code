@@ -250,6 +250,7 @@
 		"configProfile": "Perfil de configuració",
 		"description": "Deseu diferents configuracions d'API per canviar ràpidament entre proveïdors i configuracions.",
 		"apiProvider": "Proveïdor d'API",
+		"apiProviderDocs": "Documentació del proveïdor",
 		"model": "Model",
 		"nameEmpty": "El nom no pot estar buit",
 		"nameExists": "Ja existeix un perfil amb aquest nom",
@@ -293,7 +294,6 @@
 		"getRequestyApiKey": "Obtenir clau API de Requesty",
 		"getRequestyBaseUrl": "URL base",
 		"requestyUseCustomBaseUrl": "Utilitza l'URL base personalitzada",
-		"openRouterTransformsText": "Comprimir prompts i cadenes de missatges a la mida del context (<a>Transformacions d'OpenRouter</a>)",
 		"anthropicApiKey": "Clau API d'Anthropic",
 		"getAnthropicApiKey": "Obtenir clau API d'Anthropic",
 		"anthropicUseAuthToken": "Passar la clau API d'Anthropic com a capçalera d'autorització en lloc de X-Api-Key",
@@ -301,6 +301,8 @@
 		"anthropic1MContextBetaDescription": "Amplia la finestra de context a 1 milió de tokens per a Claude Sonnet 4",
 		"awsBedrock1MContextBetaLabel": "Activa la finestra de context d'1M (Beta)",
 		"awsBedrock1MContextBetaDescription": "Amplia la finestra de context a 1 milió de tokens per a Claude Sonnet 4",
+		"vertex1MContextBetaLabel": "Activa la finestra de context d'1M (Beta)",
+		"vertex1MContextBetaDescription": "Amplia la finestra de context a 1 milió de tokens per a Claude Sonnet 4",
 		"basetenApiKey": "Clau API de Baseten",
 		"getBasetenApiKey": "Obtenir clau API de Baseten",
 		"cerebrasApiKey": "Clau API de Cerebras",
@@ -822,6 +824,17 @@
 		"MULTIPLE_NATIVE_TOOL_CALLS": {
 			"name": "Crides paral·leles a eines",
 			"description": "Quan està activat, el protocol natiu pot executar múltiples eines en un sol torn de missatge de l'assistent."
+		},
+		"CUSTOM_TOOLS": {
+			"name": "Habilitar eines personalitzades",
+			"description": "Quan està habilitat, Roo pot carregar i utilitzar eines TypeScript/JavaScript personalitzades des del directori .roo/tools del vostre projecte o ~/.roo/tools per a eines globals. Nota: aquestes eines s'aprovaran automàticament.",
+			"toolsHeader": "Eines personalitzades disponibles",
+			"noTools": "No s'han carregat eines personalitzades. Afegiu fitxers .ts o .js al directori .roo/tools del vostre projecte o ~/.roo/tools per a eines globals.",
+			"refreshButton": "Actualitzar",
+			"refreshing": "Actualitzant...",
+			"refreshSuccess": "Eines actualitzades correctament",
+			"refreshError": "Error en actualitzar les eines",
+			"toolParameters": "Paràmetres"
 		}
 	},
 	"promptCaching": {

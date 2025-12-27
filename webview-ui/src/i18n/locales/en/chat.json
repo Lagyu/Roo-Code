@@ -144,7 +144,7 @@
 		"streaming": "API Request...",
 		"cancelled": "API Request Cancelled",
 		"streamingFailed": "API Streaming Failed",
-		"errorTitle": "API Error {{code}}",
+		"errorTitle": "Provider Error {{code}}",
 		"errorMessage": {
 			"docs": "Docs",
 			"goToSettings": "Settings",
@@ -288,12 +288,16 @@
 	"modelResponseIncomplete": "Model Response Incomplete",
 	"modelResponseErrors": {
 		"noToolsUsed": "The model failed to use any tools in its response. This typically happens when the model provides only text/reasoning without calling the required tools to complete the task.",
-		"noToolsUsedDetails": "The model provided text/reasoning but did not call any of the required tools. This usually indicates the model misunderstood the task or is having difficulty determining which tool to use. The model has been automatically prompted to retry with proper tool usage."
+		"noToolsUsedDetails": "The model provided text/reasoning but did not call any of the required tools. This usually indicates the model misunderstood the task or is having difficulty determining which tool to use. The model has been automatically prompted to retry with proper tool usage.",
+		"noAssistantMessages": "The model did not provide any response content. This may indicate an issue with the API or the model's output.",
+		"noAssistantMessagesDetails": "The language model returned an empty response without any text or tool calls. This can happen due to API issues, rate limiting, or model-specific problems. The model has been automatically prompted to retry."
 	},
 	"errorDetails": {
+		"link": "Details",
 		"title": "Error Details",
-		"copyToClipboard": "Copy to Clipboard",
-		"copied": "Copied!"
+		"copyToClipboard": "Copy basic error info",
+		"copied": "Copied!",
+		"diagnostics": "Get detailed error info"
 	},
 	"diffError": {
 		"title": "Edit Unsuccessful"
@@ -331,8 +335,9 @@
 		},
 		"release": {
 			"heading": "What's New:",
-			"contextRewind": "Improved context condensing now lets you restore the full previous context when rewinding to a checkpoint",
-			"rooProvider": "Roo Code Cloud provider now preserves reasoning content and defaults to native tools for better performance"
+			"minimaxM21": "Fast and affordable MiniMax M2.1 model now available in Roo Code Cloud, MiniMax, and more",
+			"glm47": "Z.AI GLM-4.7 model with thinking mode support added to Roo Code Cloud, Z.AI, and more",
+			"customTools": "Experimental custom tool support for defining your own tools in TypeScript"
 		},
 		"cloudAgents": {
 			"heading": "New in the Cloud:",

@@ -138,7 +138,7 @@
 		"streaming": "API İsteği...",
 		"cancelled": "API İsteği İptal Edildi",
 		"streamingFailed": "API Akışı Başarısız",
-		"errorTitle": "API Hatası {{code}}",
+		"errorTitle": "Sağlayıcı Hatası {{code}}",
 		"errorMessage": {
 			"docs": "Belgeler",
 			"goToSettings": "Ayarlar",
@@ -262,12 +262,16 @@
 	"modelResponseIncomplete": "Model yanıtı eksik",
 	"modelResponseErrors": {
 		"noToolsUsed": "Model yanıtında herhangi bir araç kullanamadı. Bu genellikle model, görevi tamamlamak için gerekli araçları çağırmadan yalnızca metin/akıl yürütme sağladığında olur.",
-		"noToolsUsedDetails": "Model metin/akıl yürütme sağladı ancak gerekli araçlardan hiçbirini çağırmadı. Bu genellikle modelin görevi yanlış anladığını veya hangi aracı kullanacağını belirlemekte zorlandığını gösterir. Model, uygun araç kullanımıyla yeniden denemesi için otomatik olarak istenmiştir."
+		"noToolsUsedDetails": "Model metin/akıl yürütme sağladı ancak gerekli araçlardan hiçbirini çağırmadı. Bu genellikle modelin görevi yanlış anladığını veya hangi aracı kullanacağını belirlemekte zorlandığını gösterir. Model, uygun araç kullanımıyla yeniden denemesi için otomatik olarak istenmiştir.",
+		"noAssistantMessages": "Model herhangi bir yanıt içeriği sağlamadı. Bu, API veya modelin çıktısıyla ilgili bir sorunu gösterebilir.",
+		"noAssistantMessagesDetails": "Dil modeli herhangi bir metin veya araç çağrısı olmadan boş bir yanıt döndürdü. Bu, API sorunları, hız sınırlaması veya modele özgü sorunlar nedeniyle olabilir. Model otomatik olarak yeniden denemeye yönlendirildi."
 	},
 	"errorDetails": {
+		"link": "Details",
 		"title": "Hata Detayları",
 		"copyToClipboard": "Panoya Kopyala",
-		"copied": "Kopyalandı!"
+		"copied": "Kopyalandı!",
+		"diagnostics": "Ayrıntılı hata bilgisi al"
 	},
 	"powershell": {
 		"issues": "Windows PowerShell ile ilgili sorunlar yaşıyor gibi görünüyorsunuz, lütfen şu konuya bakın"
@@ -324,9 +328,10 @@
 			"goToSettingsButton": "Ayarlar'a Git"
 		},
 		"release": {
-			"heading": "Bu sürümdeki yenilikler:",
-			"contextRewind": "İyileştirilmiş bağlam sıkıştırması, artık bir kontrol noktasına geri sarma sırasında tam önceki bağlamı geri yüklemenizi sağlıyor",
-			"rooProvider": "Roo Code Cloud sağlayıcısı artık akıl yürütme içeriğini korur ve daha iyi performans için varsayılan olarak yerel araçları kullanır"
+			"heading": "Yenilikler:",
+			"minimaxM21": "Hızlı ve uygun fiyatlı MiniMax M2.1 modeli artık Roo Code Cloud, MiniMax ve daha fazlasında mevcut",
+			"glm47": "Düşünme modu desteğine sahip Z.AI GLM-4.7 modeli Roo Code Cloud, Z.AI ve daha fazlasına eklendi",
+			"customTools": "TypeScript'te kendi araçlarınızı tanımlamak için deneysel özel araç desteği"
 		},
 		"cloudAgents": {
 			"heading": "Cloud'daki yenilikler:",

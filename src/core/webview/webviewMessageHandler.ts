@@ -2,6 +2,7 @@ import { safeWriteJson } from "../../utils/safeWriteJson"
 import * as path from "path"
 import * as os from "os"
 import * as fs from "fs/promises"
+import { getRooDirectoriesForCwd } from "../../services/roo-config/index.js"
 import pWaitFor from "p-wait-for"
 import * as vscode from "vscode"
 
@@ -13,9 +14,9 @@ import {
 	type UserSettingsConfig,
 	TelemetryEventName,
 	RooCodeSettings,
-	Experiments,
 	ExperimentId,
 } from "@roo-code/types"
+import { customToolRegistry } from "@roo-code/core"
 import { CloudService } from "@roo-code/cloud"
 import { TelemetryService } from "@roo-code/telemetry"
 
@@ -25,6 +26,7 @@ import { saveTaskMessages } from "../task-persistence"
 import { ClineProvider } from "./ClineProvider"
 import { BrowserSessionPanelManager } from "./BrowserSessionPanelManager"
 import { handleCheckpointRestoreOperation } from "./checkpointRestoreHandler"
+import { generateErrorDiagnostics } from "./diagnosticsHandler"
 import { changeLanguage, t } from "../../i18n"
 import { Package } from "../../shared/package"
 import { type RouterName, type ModelRecord, toRouterName } from "../../shared/api"
@@ -777,7 +779,9 @@ export const webviewMessageHandler = async (
 			break
 		case "flushRouterModels":
 			const routerNameFlush: RouterName = toRouterName(message.text)
-			await flushModels(routerNameFlush, true)
+			// Note: flushRouterModels is a generic flush without credentials
+			// For providers that need credentials, use their specific handlers
+			await flushModels({ provider: routerNameFlush } as GetModelsOptions, true)
 			break
 		case "requestRouterModels":
 			const { apiConfiguration } = await provider.getState()
@@ -785,6 +789,9 @@ export const webviewMessageHandler = async (
 			// Optional single provider filter from webview
 			const requestedProvider = message?.values?.provider
 			const providerFilter = requestedProvider ? toRouterName(requestedProvider) : undefined
+
+			// Optional refresh flag to flush cache before fetching (useful for providers requiring credentials)
+			const shouldRefresh = message?.values?.refresh === true
 
 			const routerModels: Record<RouterName, ModelRecord> = providerFilter
 				? ({} as Record<RouterName, ModelRecord>)
@@ -869,7 +876,7 @@ export const webviewMessageHandler = async (
 				// If explicit credentials are provided in message.values (from Refresh Models button),
 				// flush the cache first to ensure we fetch fresh data with the new credentials
 				if (message?.values?.litellmApiKey || message?.values?.litellmBaseUrl) {
-					await flushModels("litellm", true)
+					await flushModels({ provider: "litellm", apiKey: litellmApiKey, baseUrl: litellmBaseUrl }, true)
 				}
 
 				candidates.push({
@@ -882,6 +889,12 @@ export const webviewMessageHandler = async (
 			const modelFetchPromises = providerFilter
 				? candidates.filter(({ key }) => key === providerFilter)
 				: candidates
+
+			// If refresh flag is set and we have a specific provider, flush its cache first
+			if (shouldRefresh && providerFilter && modelFetchPromises.length > 0) {
+				const targetCandidate = modelFetchPromises[0]
+				await flushModels(targetCandidate.options, true)
+			}
 
 			const results = await Promise.allSettled(
 				modelFetchPromises.map(async ({ key, options }) => {
@@ -923,14 +936,15 @@ export const webviewMessageHandler = async (
 			// Specific handler for Ollama models only.
 			const { apiConfiguration: ollamaApiConfig } = await provider.getState()
 			try {
-				// Flush cache and refresh to ensure fresh models.
-				await flushModels("ollama", true)
-
-				const ollamaModels = await getModels({
-					provider: "ollama",
+				const ollamaOptions = {
+					provider: "ollama" as const,
 					baseUrl: ollamaApiConfig.ollamaBaseUrl,
 					apiKey: ollamaApiConfig.ollamaApiKey,
-				})
+				}
+				// Flush cache and refresh to ensure fresh models.
+				await flushModels(ollamaOptions, true)
+
+				const ollamaModels = await getModels(ollamaOptions)
 
 				if (Object.keys(ollamaModels).length > 0) {
 					provider.postMessageToWebview({ type: "ollamaModels", ollamaModels: ollamaModels })
@@ -945,13 +959,14 @@ export const webviewMessageHandler = async (
 			// Specific handler for LM Studio models only.
 			const { apiConfiguration: lmStudioApiConfig } = await provider.getState()
 			try {
-				// Flush cache and refresh to ensure fresh models.
-				await flushModels("lmstudio", true)
-
-				const lmStudioModels = await getModels({
-					provider: "lmstudio",
+				const lmStudioOptions = {
+					provider: "lmstudio" as const,
 					baseUrl: lmStudioApiConfig.lmStudioBaseUrl,
-				})
+				}
+				// Flush cache and refresh to ensure fresh models.
+				await flushModels(lmStudioOptions, true)
+
+				const lmStudioModels = await getModels(lmStudioOptions)
 
 				if (Object.keys(lmStudioModels).length > 0) {
 					provider.postMessageToWebview({
@@ -968,16 +983,17 @@ export const webviewMessageHandler = async (
 		case "requestRooModels": {
 			// Specific handler for Roo models only - flushes cache to ensure fresh auth token is used
 			try {
-				// Flush cache and refresh to ensure fresh models with current auth state
-				await flushModels("roo", true)
-
-				const rooModels = await getModels({
-					provider: "roo",
+				const rooOptions = {
+					provider: "roo" as const,
 					baseUrl: process.env.ROO_CODE_PROVIDER_URL ?? "https://api.roocode.com/proxy",
 					apiKey: CloudService.hasInstance()
 						? CloudService.instance.authService?.getSessionToken()
 						: undefined,
-				})
+				}
+				// Flush cache and refresh to ensure fresh models with current auth state
+				await flushModels(rooOptions, true)
+
+				const rooModels = await getModels(rooOptions)
 
 				// Always send a response, even if no models are returned
 				provider.postMessageToWebview({
@@ -1719,6 +1735,25 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
+		case "refreshCustomTools": {
+			try {
+				const toolDirs = getRooDirectoriesForCwd(getCurrentCwd()).map((dir) => path.join(dir, "tools"))
+				await customToolRegistry.loadFromDirectories(toolDirs)
+
+				await provider.postMessageToWebview({
+					type: "customToolsResult",
+					tools: customToolRegistry.getAllSerialized(),
+				})
+			} catch (error) {
+				await provider.postMessageToWebview({
+					type: "customToolsResult",
+					tools: [],
+					error: error instanceof Error ? error.message : String(error),
+				})
+			}
+
+			break
+		}
 		case "saveApiConfiguration":
 			if (message.text && message.apiConfiguration) {
 				try {
@@ -2347,6 +2382,12 @@ export const webviewMessageHandler = async (
 				vscode.window.showErrorMessage(`${t("common:errors.manual_url_auth_error")}: ${errorMessage}`)
 			}
 
+			break
+		}
+		case "clearCloudAuthSkipModel": {
+			// Clear the flag that indicates auth completed without model selection
+			await provider.context.globalState.update("roo-auth-skip-model", undefined)
+			await provider.postStateToWebview()
 			break
 		}
 		case "switchOrganization": {
@@ -3165,6 +3206,22 @@ export const webviewMessageHandler = async (
 				provider.log(`Error opening debug history: ${errorMessage}`)
 				vscode.window.showErrorMessage(`Failed to open debug history: ${errorMessage}`)
 			}
+			break
+		}
+
+		case "downloadErrorDiagnostics": {
+			const currentTask = provider.getCurrentTask()
+			if (!currentTask) {
+				vscode.window.showErrorMessage("No active task to generate diagnostics for")
+				break
+			}
+
+			await generateErrorDiagnostics({
+				taskId: currentTask.taskId,
+				globalStoragePath: provider.contextProxy.globalStorageUri.fsPath,
+				values: message.values,
+				log: (msg) => provider.log(msg),
+			})
 			break
 		}
 

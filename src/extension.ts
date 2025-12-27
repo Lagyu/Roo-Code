@@ -15,6 +15,7 @@ try {
 import type { CloudUserInfo, AuthState } from "@roo-code/types"
 import { CloudService, BridgeOrchestrator } from "@roo-code/cloud"
 import { TelemetryService, PostHogTelemetryClient } from "@roo-code/telemetry"
+import { customToolRegistry } from "@roo-code/core"
 
 import "./utils/path" // Necessary to have access to String.prototype.toPosix.
 import { createOutputChannelLogger, createDualLogger } from "./utils/outputChannelLogger"
@@ -142,6 +143,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 	)
 
+	// Set extension path for custom tool registry to find bundled esbuild
+	customToolRegistry.setExtensionPath(context.extensionPath)
+
 	// Migrate old settings to new
 	await migrateSettings(context, outputChannel)
 
@@ -236,7 +240,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					})
 				} else {
 					// Flush without refresh on logout
-					await flushModels("roo", false)
+					await flushModels({ provider: "roo" }, false)
 				}
 			} catch (error) {
 				cloudLogger(

@@ -138,7 +138,7 @@
 		"streaming": "Zapytanie API...",
 		"cancelled": "Zapytanie API anulowane",
 		"streamingFailed": "Strumieniowanie API nie powiodło się",
-		"errorTitle": "Błąd API {{code}}",
+		"errorTitle": "Błąd dostawcy {{code}}",
 		"errorMessage": {
 			"docs": "Dokumentacja",
 			"goToSettings": "Ustawienia",
@@ -261,12 +261,16 @@
 	"modelResponseIncomplete": "Odpowiedź modelu niekompletna",
 	"modelResponseErrors": {
 		"noToolsUsed": "Model nie użył żadnych narzędzi w swojej odpowiedzi. Zwykle dzieje się tak, gdy model dostarcza tylko tekst/rozumowanie bez wywołania wymaganych narzędzi do wykonania zadania.",
-		"noToolsUsedDetails": "Model dostarczył tekst/rozumowanie, ale nie wywołał żadnego z wymaganych narzędzi. Zazwyczaj oznacza to, że model źle zrozumiał zadanie lub ma trudności z określeniem, którego narzędzia użyć. Model został automatycznie poproszony o ponowną próbę z odpowiednim użyciem narzędzi."
+		"noToolsUsedDetails": "Model dostarczył tekst/rozumowanie, ale nie wywołał żadnego z wymaganych narzędzi. Zazwyczaj oznacza to, że model źle zrozumiał zadanie lub ma trudności z określeniem, którego narzędzia użyć. Model został automatycznie poproszony o ponowną próbę z odpowiednim użyciem narzędzi.",
+		"noAssistantMessages": "Model nie dostarczył żadnej odpowiedzi. Może to wskazywać na problem z API lub wyjściem modelu.",
+		"noAssistantMessagesDetails": "Model językowy zwrócił pustą odpowiedź bez żadnego tekstu ani wywołań narzędzi. Może się to zdarzyć z powodu problemów z API, limitów szybkości lub problemów specyficznych dla modelu. Model został automatycznie poproszony o ponowną próbę."
 	},
 	"errorDetails": {
+		"link": "Details",
 		"title": "Szczegóły błędu",
 		"copyToClipboard": "Kopiuj do schowka",
-		"copied": "Skopiowano!"
+		"copied": "Skopiowano!",
+		"diagnostics": "Uzyskaj szczegółowe informacje o błędzie"
 	},
 	"powershell": {
 		"issues": "Wygląda na to, że masz problemy z Windows PowerShell, proszę zapoznaj się z tym"
@@ -323,9 +327,10 @@
 			"goToSettingsButton": "Przejdź do Ustawień"
 		},
 		"release": {
-			"heading": "Nowości:",
-			"contextRewind": "Ulepszona kondensacja kontekstu pozwala teraz przywrócić pełny poprzedni kontekst przy przewijaniu do punktu kontrolnego",
-			"rooProvider": "Dostawca Roo Code Cloud teraz zachowuje zawartość rozumowania i domyślnie używa narzędzi natywnych dla lepszej wydajności"
+			"heading": "Co nowego:",
+			"minimaxM21": "Szybki i niedrogi model MiniMax M2.1 jest teraz dostępny w Roo Code Cloud, MiniMax i innych",
+			"glm47": "Model Z.AI GLM-4.7 ze wsparciem trybu myślenia dodany do Roo Code Cloud, Z.AI i innych",
+			"customTools": "Eksperymentalne wsparcie dla niestandardowych narzędzi do definiowania własnych narzędzi w TypeScript"
 		},
 		"cloudAgents": {
 			"heading": "Nowości w chmurze:",

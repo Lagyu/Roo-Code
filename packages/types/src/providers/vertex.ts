@@ -275,29 +275,49 @@ export const vertexModels = {
 	},
 	"claude-sonnet-4@20250514": {
 		maxTokens: 8192,
-		contextWindow: 200_000,
+		contextWindow: 200_000, // Default 200K, extendable to 1M with beta flag 'context-1m-2025-08-07'
 		supportsImages: true,
 		supportsPromptCache: true,
 		supportsNativeTools: true,
 		defaultToolProtocol: "native",
-		inputPrice: 3.0,
-		outputPrice: 15.0,
-		cacheWritesPrice: 3.75,
-		cacheReadsPrice: 0.3,
+		inputPrice: 3.0, // $3 per million input tokens (≤200K context)
+		outputPrice: 15.0, // $15 per million output tokens (≤200K context)
+		cacheWritesPrice: 3.75, // $3.75 per million tokens
+		cacheReadsPrice: 0.3, // $0.30 per million tokens
 		supportsReasoningBudget: true,
+		// Tiered pricing for extended context (requires beta flag 'context-1m-2025-08-07')
+		tiers: [
+			{
+				contextWindow: 1_000_000, // 1M tokens with beta flag
+				inputPrice: 6.0, // $6 per million input tokens (>200K context)
+				outputPrice: 22.5, // $22.50 per million output tokens (>200K context)
+				cacheWritesPrice: 7.5, // $7.50 per million tokens (>200K context)
+				cacheReadsPrice: 0.6, // $0.60 per million tokens (>200K context)
+			},
+		],
 	},
 	"claude-sonnet-4-5@20250929": {
 		maxTokens: 8192,
-		contextWindow: 200_000,
+		contextWindow: 200_000, // Default 200K, extendable to 1M with beta flag 'context-1m-2025-08-07'
 		supportsImages: true,
 		supportsPromptCache: true,
 		supportsNativeTools: true,
 		defaultToolProtocol: "native",
-		inputPrice: 3.0,
-		outputPrice: 15.0,
-		cacheWritesPrice: 3.75,
-		cacheReadsPrice: 0.3,
+		inputPrice: 3.0, // $3 per million input tokens (≤200K context)
+		outputPrice: 15.0, // $15 per million output tokens (≤200K context)
+		cacheWritesPrice: 3.75, // $3.75 per million tokens
+		cacheReadsPrice: 0.3, // $0.30 per million tokens
 		supportsReasoningBudget: true,
+		// Tiered pricing for extended context (requires beta flag 'context-1m-2025-08-07')
+		tiers: [
+			{
+				contextWindow: 1_000_000, // 1M tokens with beta flag
+				inputPrice: 6.0, // $6 per million input tokens (>200K context)
+				outputPrice: 22.5, // $22.50 per million output tokens (>200K context)
+				cacheWritesPrice: 7.5, // $7.50 per million tokens (>200K context)
+				cacheReadsPrice: 0.6, // $0.60 per million tokens (>200K context)
+			},
+		],
 	},
 	"claude-haiku-4-5@20251001": {
 		maxTokens: 8192,
@@ -457,6 +477,7 @@ export const vertexModels = {
 		contextWindow: 131072,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 0.35,
 		outputPrice: 1.15,
 		description: "Meta Llama 4 Maverick 17B Instruct model, 128K context.",
@@ -466,6 +487,7 @@ export const vertexModels = {
 		contextWindow: 163_840,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 1.35,
 		outputPrice: 5.4,
 		description: "DeepSeek R1 (0528). Available in us-central1",
@@ -475,6 +497,7 @@ export const vertexModels = {
 		contextWindow: 163_840,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 0.6,
 		outputPrice: 1.7,
 		description: "DeepSeek V3.1. Available in us-west2",
@@ -484,6 +507,7 @@ export const vertexModels = {
 		contextWindow: 131_072,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 0.15,
 		outputPrice: 0.6,
 		description: "OpenAI gpt-oss 120B. Available in us-central1",
@@ -493,6 +517,7 @@ export const vertexModels = {
 		contextWindow: 131_072,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 0.075,
 		outputPrice: 0.3,
 		description: "OpenAI gpt-oss 20B. Available in us-central1",
@@ -502,6 +527,7 @@ export const vertexModels = {
 		contextWindow: 262_144,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 1.0,
 		outputPrice: 4.0,
 		description: "Qwen3 Coder 480B A35B Instruct. Available in us-south1",
@@ -511,11 +537,16 @@ export const vertexModels = {
 		contextWindow: 262_144,
 		supportsImages: false,
 		supportsPromptCache: false,
+		supportsNativeTools: true,
 		inputPrice: 0.25,
 		outputPrice: 1.0,
 		description: "Qwen3 235B A22B Instruct. Available in us-south1",
 	},
 } as const satisfies Record<string, ModelInfo>
+
+// Vertex AI models that support 1M context window beta
+// Uses the same beta header 'context-1m-2025-08-07' as Anthropic and Bedrock
+export const VERTEX_1M_CONTEXT_MODEL_IDS = ["claude-sonnet-4@20250514", "claude-sonnet-4-5@20250929"] as const
 
 export const VERTEX_REGIONS = [
 	{ value: "global", label: "global" },

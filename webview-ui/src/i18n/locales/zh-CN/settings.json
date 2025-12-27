@@ -250,6 +250,7 @@
 		"configProfile": "配置文件",
 		"description": "保存多组API配置便于快速切换",
 		"apiProvider": "API提供商",
+		"apiProviderDocs": "提供商文档",
 		"model": "模型",
 		"nameEmpty": "名称不能为空",
 		"nameExists": "已存在同名的配置文件",
@@ -293,7 +294,6 @@
 		"getRequestyApiKey": "获取 Requesty API 密钥",
 		"getRequestyBaseUrl": "基础 URL",
 		"requestyUseCustomBaseUrl": "使用自定义基础 URL",
-		"openRouterTransformsText": "自动压缩提示词和消息链到上下文长度限制内 (<a>OpenRouter转换</a>)",
 		"anthropicApiKey": "Anthropic API 密钥",
 		"getAnthropicApiKey": "获取 Anthropic API 密钥",
 		"anthropicUseAuthToken": "将 Anthropic API 密钥作为 Authorization 标头传递，而不是 X-Api-Key",
@@ -301,6 +301,8 @@
 		"anthropic1MContextBetaDescription": "为 Claude Sonnet 4 将上下文窗口扩展至 100 万个 token",
 		"awsBedrock1MContextBetaLabel": "启用 1M 上下文窗口 (Beta)",
 		"awsBedrock1MContextBetaDescription": "为 Claude Sonnet 4 将上下文窗口扩展至 100 万个 token",
+		"vertex1MContextBetaLabel": "启用 1M 上下文窗口 (Beta)",
+		"vertex1MContextBetaDescription": "为 Claude Sonnet 4 将上下文窗口扩展至 100 万个 token",
 		"basetenApiKey": "Baseten API 密钥",
 		"getBasetenApiKey": "获取 Baseten API 密钥",
 		"cerebrasApiKey": "Cerebras API 密钥",
@@ -823,6 +825,17 @@
 		"MULTIPLE_NATIVE_TOOL_CALLS": {
 			"name": "并行工具调用",
 			"description": "启用后，原生协议可在单个助手消息轮次中执行多个工具。"
+		},
+		"CUSTOM_TOOLS": {
+			"name": "启用自定义工具",
+			"description": "启用后 Roo 可从项目中的 .roo/tools 目录或全局工具目录 ~/.roo/tools 加载并使用自定义 TypeScript/JavaScript 工具。注意：这些工具将自动获批。",
+			"toolsHeader": "可用自定义工具",
+			"noTools": "未加载自定义工具。请向项目的 .roo/tools 目录或全局工具目录 ~/.roo/tools 添加 .ts 或 .js 文件。",
+			"refreshButton": "刷新",
+			"refreshing": "正在刷新...",
+			"refreshSuccess": "工具刷新成功",
+			"refreshError": "工具刷新失败",
+			"toolParameters": "参数"
 		}
 	},
 	"promptCaching": {

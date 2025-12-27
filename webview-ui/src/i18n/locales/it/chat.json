@@ -141,7 +141,7 @@
 		"streaming": "Richiesta API...",
 		"cancelled": "Richiesta API annullata",
 		"streamingFailed": "Streaming API fallito",
-		"errorTitle": "Errore API {{code}}",
+		"errorTitle": "Errore del fornitore {{code}}",
 		"errorMessage": {
 			"docs": "Documentazione",
 			"goToSettings": "Impostazioni",
@@ -261,12 +261,16 @@
 	"modelResponseIncomplete": "Risposta del modello incompleta",
 	"modelResponseErrors": {
 		"noToolsUsed": "Il modello non ha utilizzato alcuno strumento nella sua risposta. Questo accade tipicamente quando il modello fornisce solo testo/ragionamento senza chiamare gli strumenti necessari per completare l'attività.",
-		"noToolsUsedDetails": "Il modello ha fornito testo/ragionamento ma non ha chiamato nessuno degli strumenti richiesti. Questo di solito indica che il modello ha frainteso l'attività o ha difficoltà a determinare quale strumento utilizzare. Il modello è stato automaticamente sollecitato a riprovare con l'uso appropriato degli strumenti."
+		"noToolsUsedDetails": "Il modello ha fornito testo/ragionamento ma non ha chiamato nessuno degli strumenti richiesti. Questo di solito indica che il modello ha frainteso l'attività o ha difficoltà a determinare quale strumento utilizzare. Il modello è stato automaticamente sollecitato a riprovare con l'uso appropriato degli strumenti.",
+		"noAssistantMessages": "Il modello non ha fornito alcun contenuto di risposta. Questo potrebbe indicare un problema con l'API o l'output del modello.",
+		"noAssistantMessagesDetails": "Il modello linguistico ha restituito una risposta vuota senza testo o chiamate a strumenti. Questo può accadere a causa di problemi API, limitazione della velocità o problemi specifici del modello. Il modello è stato automaticamente sollecitato a riprovare."
 	},
 	"errorDetails": {
+		"link": "Dettagli",
 		"title": "Dettagli errore",
 		"copyToClipboard": "Copia negli appunti",
-		"copied": "Copiato!"
+		"copied": "Copiato!",
+		"diagnostics": "Ottieni informazioni errore dettagliate"
 	},
 	"powershell": {
 		"issues": "Sembra che tu stia avendo problemi con Windows PowerShell, consulta questa"
@@ -323,9 +327,10 @@
 			"goToSettingsButton": "Vai alle Impostazioni"
 		},
 		"release": {
-			"heading": "Novità in questa versione:",
-			"contextRewind": "La condensazione migliorata del contesto ora ti consente di ripristinare il contesto precedente completo quando riavvolgi a un checkpoint",
-			"rooProvider": "Il provider Roo Code Cloud ora preserva il contenuto del ragionamento e utilizza gli strumenti nativi per impostazione predefinita per migliori prestazioni"
+			"heading": "Novità:",
+			"minimaxM21": "Il modello MiniMax M2.1 veloce e conveniente è ora disponibile in Roo Code Cloud, MiniMax e altri",
+			"glm47": "Il modello Z.AI GLM-4.7 con supporto della modalità di pensiero è stato aggiunto a Roo Code Cloud, Z.AI e altri",
+			"customTools": "Supporto sperimentale di strumenti personalizzati per definire i tuoi strumenti in TypeScript"
 		},
 		"cloudAgents": {
 			"heading": "Novità nel Cloud:",

@@ -250,6 +250,7 @@
 		"configProfile": "कॉन्फिगरेशन प्रोफाइल",
 		"description": "विभिन्न API कॉन्फ़िगरेशन सहेजें ताकि प्रदाताओं और सेटिंग्स के बीच त्वरित रूप से स्विच कर सकें।",
 		"apiProvider": "API प्रदाता",
+		"apiProviderDocs": "प्रदाता डॉक्स",
 		"model": "मॉडल",
 		"nameEmpty": "नाम खाली नहीं हो सकता",
 		"nameExists": "इस नाम वाला प्रोफ़ाइल पहले से मौजूद है",
@@ -293,7 +294,6 @@
 		"getRequestyApiKey": "Requesty API कुंजी प्राप्त करें",
 		"getRequestyBaseUrl": "बेस URL",
 		"requestyUseCustomBaseUrl": "कस्टम बेस URL का उपयोग करें",
-		"openRouterTransformsText": "संदर्भ आकार के लिए प्रॉम्प्ट और संदेश श्रृंखलाओं को संपीड़ित करें (<a>OpenRouter ट्रांसफॉर्म</a>)",
 		"anthropicApiKey": "Anthropic API कुंजी",
 		"getAnthropicApiKey": "Anthropic API कुंजी प्राप्त करें",
 		"anthropicUseAuthToken": "X-Api-Key के बजाय Anthropic API कुंजी को Authorization हेडर के रूप में पास करें",
@@ -301,6 +301,8 @@
 		"anthropic1MContextBetaDescription": "Claude Sonnet 4 के लिए संदर्भ विंडो को 1 मिलियन टोकन तक बढ़ाता है",
 		"awsBedrock1MContextBetaLabel": "1M संदर्भ विंडो सक्षम करें (बीटा)",
 		"awsBedrock1MContextBetaDescription": "Claude Sonnet 4 के लिए संदर्भ विंडो को 1 मिलियन टोकन तक बढ़ाता है",
+		"vertex1MContextBetaLabel": "1M संदर्भ विंडो सक्षम करें (बीटा)",
+		"vertex1MContextBetaDescription": "Claude Sonnet 4 के लिए संदर्भ विंडो को 1 मिलियन टोकन तक बढ़ाता है",
 		"basetenApiKey": "Baseten API कुंजी",
 		"getBasetenApiKey": "Baseten API कुंजी प्राप्त करें",
 		"cerebrasApiKey": "Cerebras API कुंजी",
@@ -823,6 +825,17 @@
 		"MULTIPLE_NATIVE_TOOL_CALLS": {
 			"name": "समानांतर टूल कॉल",
 			"description": "सक्षम होने पर, नेटिव प्रोटोकॉल एकल सहायक संदेश टर्न में एकाधिक टूल निष्पादित कर सकता है।"
+		},
+		"CUSTOM_TOOLS": {
+			"name": "कस्टम टूल्स सक्षम करें",
+			"description": "सक्षम होने पर, Roo आपके प्रोजेक्ट की .roo/tools निर्देशिका या वैश्विक टूल्स के लिए ~/.roo/tools से कस्टम TypeScript/JavaScript टूल्स लोड और उपयोग कर सकता है। नोट: ये टूल्स स्वचालित रूप से स्वत:-अनुमोदित होंगे।",
+			"toolsHeader": "उपलब्ध कस्टम टूल्स",
+			"noTools": "कोई कस्टम टूल लोड नहीं हुआ। अपने प्रोजेक्ट की .roo/tools निर्देशिका या वैश्विक टूल्स के लिए ~/.roo/tools में .ts या .js फ़ाइलें जोड़ें।",
+			"refreshButton": "रिफ्रेश करें",
+			"refreshing": "रिफ्रेश हो रहा है...",
+			"refreshSuccess": "टूल्स सफलतापूर्वक रिफ्रेश हुए",
+			"refreshError": "टूल्स रिफ्रेश करने में विफल",
+			"toolParameters": "पैरामीटर्स"
 		}
 	},
 	"promptCaching": {
