@@ -1,5 +1,39 @@
 # Roo Code Changelog
 
+## [3.38.2] - 2025-12-31
+
+![3.38.2 Release - Skill Alignment](/releases/3.38.2-release.png)
+
+- Align skills system with Agent Skills specification (PR #10409 by @hannesrudolph)
+- Prevent write_to_file from creating files at truncated paths (PR #10415 by @mrubens and @daniel-lxs)
+- Update Cerebras maxTokens to 16384 (PR #10387 by @sebastiand-cerebras)
+- Fix rate limit wait display (PR #10389 by @hannesrudolph)
+- Remove human-relay provider (PR #10388 by @hannesrudolph)
+- Replace Todo Lists video with Context Management video in documentation (PR #10375 by @SannidhyaSah)
+
+## [3.38.1] - 2025-12-29
+
+![3.38.1 Release - Bug Fixes and Stability](/releases/3.38.1-release.png)
+
+- Fix: Flush pending tool results before condensing context (PR #10379 by @daniel-lxs)
+- Fix: Revert mergeToolResultText for OpenAI-compatible providers (PR #10381 by @hannesrudolph)
+- Fix: Enforce maxConcurrentFileReads limit in read_file tool (PR #10363 by @roomote)
+- Fix: Improve feedback message when read_file is used on a directory (PR #10371 by @roomote)
+- Fix: Handle custom tool use similarly to MCP tools for IPC schema purposes (PR #10364 by @jr)
+- Fix: Correct GitHub repository URL in marketing page (#10376 by @jishnuteegala, PR #10377 by @roomote)
+- Docs: Clarify path to Security Settings in privacy policy (PR #10367 by @roomote)
+
+## [3.38.0] - 2025-12-27
+
+![3.38.0 Release - Skills](/releases/3.38.0-release.png)
+
+- Add support for [Agent Skills](https://agentskills.io/), enabling reusable packages of prompts, tools, and resources to extend Roo's capabilities (PR #10335 by @mrubens)
+- Add optional mode field to slash command front matter, allowing commands to automatically switch to a specific mode when triggered (PR #10344 by @app/roomote)
+- Add support for npm packages and .env files to custom tools, allowing custom tools to import dependencies and access environment variables (PR #10336 by @cte)
+- Remove simpleReadFileTool feature, streamlining the file reading experience (PR #10254 by @app/roomote)
+- Remove OpenRouter Transforms feature (PR #10341 by @app/roomote)
+- Fix mergeToolResultText handling in Roo provider (PR #10359 by @mrubens)
+
 ## [3.37.1] - 2025-12-23
 
 ![3.37.1 Release - Tool Fixes and Provider Improvements](/releases/3.37.1-release.png)
