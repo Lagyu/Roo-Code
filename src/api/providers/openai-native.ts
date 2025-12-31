@@ -56,7 +56,7 @@ function isAzureOpenAiBaseUrl(baseUrl?: string): boolean {
 }
 
 function isGpt5ProModel(modelId: string): boolean {
-	return modelId.startsWith("gpt-5-pro")
+	return /^gpt-5(?:\.\d+)?-pro/.test(modelId)
 }
 
 function isNoKvSpaceError(error: unknown): boolean {
@@ -802,7 +802,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Enable background mode when either explicitly opted in or required by model metadata
 		if (this.options.openAiNativeBackgroundMode === true || model.info.backgroundMode === true) {
 			// Azure OpenAI gateways commonly enforce aggressive idle timeouts on long-lived SSE streams.
-			// For long-running background requests (notably gpt-5-pro), prefer background + polling (stream:false)
+			// For long-running background requests (notably GPT-5 Pro variants), prefer background + polling (stream:false)
 			// to avoid repeated 408s during resume attempts.
 			const disableBackgroundStreaming =
 				model.info.backgroundMode === true && isAzureOpenAiBaseUrl(this.options.openAiNativeBaseUrl)
@@ -1476,7 +1476,7 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
 			return configured
 		}
-		// gpt-5-pro is expected to take much longer than typical models.
+		// GPT-5 Pro variants are expected to take much longer than typical models.
 		if (isGpt5ProModel(model.id)) return 60
 		return 20
 	}

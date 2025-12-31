@@ -384,11 +384,13 @@ describe("OpenAiNativeHandler - normalizeUsage", () => {
 		})
 
 		it("should not set prompt_cache_retention when the model does not support prompt caching", () => {
-			const modelId = "codex-mini-latest"
-			expect(openAiNativeModels[modelId as keyof typeof openAiNativeModels].supportsPromptCache).toBe(false)
+			const modelIds = ["codex-mini-latest", "gpt-5.2-pro"]
 
-			const body = buildRequestBodyForModel(modelId)
-			expect(body.prompt_cache_retention).toBeUndefined()
+			for (const modelId of modelIds) {
+				expect(openAiNativeModels[modelId as keyof typeof openAiNativeModels].supportsPromptCache).toBe(false)
+				const body = buildRequestBodyForModel(modelId)
+				expect(body.prompt_cache_retention).toBeUndefined()
+			}
 		})
 	})
 

@@ -167,12 +167,12 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 		return null
 	}
 
-	// GPT-5 Pro uses background mode with long-running requests. Expose max output tokens as a dedicated control
-	// even though we intentionally hide reasoning effort controls for this model.
+	// GPT-5 Pro variants use background mode with long-running requests. Expose max output tokens as a dedicated control
+	// even though we intentionally hide reasoning effort controls for these models.
 	const isGpt5ProModel =
 		apiConfiguration.apiProvider === "openai-native" &&
 		typeof selectedModelId === "string" &&
-		selectedModelId.toLowerCase().startsWith("gpt-5-pro")
+		/^gpt-5(?:\.\d+)?-pro/.test(selectedModelId.toLowerCase())
 
 	if (isGpt5ProModel) {
 		const isAzureBaseUrl =

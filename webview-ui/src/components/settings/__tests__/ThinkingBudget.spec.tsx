@@ -238,10 +238,12 @@ describe("ThinkingBudget", () => {
 			backgroundMode: true,
 		}
 
-		it("should show max output tokens toggle for gpt-5-pro models", () => {
+		const proModelIds = ["gpt-5-pro-2025-10-06", "gpt-5.2-pro"]
+
+		it.each(proModelIds)("should show max output tokens toggle for %s", (modelId) => {
 			render(
 				<ThinkingBudget
-					apiConfiguration={{ apiProvider: "openai-native", apiModelId: "gpt-5-pro-2025-10-06" }}
+					apiConfiguration={{ apiProvider: "openai-native", apiModelId: modelId }}
 					setApiConfigurationField={vi.fn()}
 					modelInfo={gpt5ProModelInfo}
 				/>,
@@ -251,14 +253,14 @@ describe("ThinkingBudget", () => {
 			expect(screen.queryByTestId("slider")).not.toBeInTheDocument()
 		})
 
-		it("should update modelMaxTokens from the gpt-5-pro max output tokens slider", () => {
+		it("should update modelMaxTokens from the GPT-5 Pro max output tokens slider", () => {
 			const setApiConfigurationField = vi.fn()
 
 			render(
 				<ThinkingBudget
 					apiConfiguration={{
 						apiProvider: "openai-native",
-						apiModelId: "gpt-5-pro-2025-10-06",
+						apiModelId: "gpt-5.2-pro",
 						modelMaxTokens: 4096,
 					}}
 					setApiConfigurationField={setApiConfigurationField}

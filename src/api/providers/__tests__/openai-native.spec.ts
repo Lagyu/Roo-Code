@@ -2117,10 +2117,11 @@ describe("OpenAI Native background mode behavior", () => {
 	})
 
 	const metadataStoreFalse: ApiHandlerCreateMessageMetadata = { taskId: "background-test", store: false }
+	const proModelIds = ["gpt-5-pro-2025-10-06", "gpt-5.2-pro"]
 
-	it("auto-enables background mode for gpt-5-pro when no override is specified", async () => {
+	it.each(proModelIds)("auto-enables background mode for %s when no override is specified", async (modelId) => {
 		const handler = new OpenAiNativeHandler({
-			apiModelId: "gpt-5-pro-2025-10-06",
+			apiModelId: modelId,
 			openAiNativeApiKey: "test",
 			// openAiNativeBackgroundMode is undefined
 		})
@@ -2138,59 +2139,62 @@ describe("OpenAI Native background mode behavior", () => {
 		expect(requestBody.stream).toBe(true)
 		expect(requestBody.store).toBe(true)
 	})
-	it("sends background:true, stream:true, and forces store:true for gpt-5-pro when background mode is enabled", async () => {
+	it.each(proModelIds)(
+		"sends background:true, stream:true, and forces store:true for %s when background mode is enabled",
+		async (modelId) => {
+			const handler = new OpenAiNativeHandler({
+				apiModelId: modelId,
+				openAiNativeApiKey: "test",
+				openAiNativeBackgroundMode: true,
+			})
+
+			mockResponsesCreate.mockResolvedValueOnce(createMinimalIterable())
+
+			const chunks: any[] = []
+			for await (const chunk of handler.createMessage(systemPrompt, baseMessages, metadataStoreFalse)) {
+				chunks.push(chunk)
+			}
+
+			expect(chunks).not.toHaveLength(0)
+
+			const requestBody = mockResponsesCreate.mock.calls[0][0]
+			expect(requestBody.background).toBe(true)
+			expect(requestBody.stream).toBe(true)
+			expect(requestBody.store).toBe(true)
+			expect(requestBody.instructions).toBe(systemPrompt)
+			expect(requestBody.model).toBe(modelId)
+			expect(Array.isArray(requestBody.input)).toBe(true)
+			expect(requestBody.input.length).toBeGreaterThan(0)
+
+			mockResponsesCreate.mockClear()
+
+			const handlerWithOptionFalse = new OpenAiNativeHandler({
+				apiModelId: modelId,
+				openAiNativeApiKey: "test",
+				openAiNativeBackgroundMode: false, // metadata still enforces background mode
+			})
+
+			mockResponsesCreate.mockResolvedValueOnce(createMinimalIterable())
+
+			for await (const chunk of handlerWithOptionFalse.createMessage(
+				systemPrompt,
+				baseMessages,
+				metadataStoreFalse,
+			)) {
+				chunks.push(chunk)
+			}
+
+			const requestBodyWithOptionFalse = mockResponsesCreate.mock.calls[0][0]
+			// Still enabled due to model.info.backgroundMode
+			expect(requestBodyWithOptionFalse.background).toBe(true)
+			expect(requestBodyWithOptionFalse.store).toBe(true)
+			expect(requestBodyWithOptionFalse.stream).toBe(true)
+		},
+	)
+
+	it.each(proModelIds)("prefers background polling (stream:false) for %s on Azure baseUrl", async (modelId) => {
 		const handler = new OpenAiNativeHandler({
-			apiModelId: "gpt-5-pro-2025-10-06",
-			openAiNativeApiKey: "test",
-			openAiNativeBackgroundMode: true,
-		})
-
-		mockResponsesCreate.mockResolvedValueOnce(createMinimalIterable())
-
-		const chunks: any[] = []
-		for await (const chunk of handler.createMessage(systemPrompt, baseMessages, metadataStoreFalse)) {
-			chunks.push(chunk)
-		}
-
-		expect(chunks).not.toHaveLength(0)
-
-		const requestBody = mockResponsesCreate.mock.calls[0][0]
-		expect(requestBody.background).toBe(true)
-		expect(requestBody.stream).toBe(true)
-		expect(requestBody.store).toBe(true)
-		expect(requestBody.instructions).toBe(systemPrompt)
-		expect(requestBody.model).toBe("gpt-5-pro-2025-10-06")
-		expect(Array.isArray(requestBody.input)).toBe(true)
-		expect(requestBody.input.length).toBeGreaterThan(0)
-
-		mockResponsesCreate.mockClear()
-
-		const handlerWithOptionFalse = new OpenAiNativeHandler({
-			apiModelId: "gpt-5-pro-2025-10-06",
-			openAiNativeApiKey: "test",
-			openAiNativeBackgroundMode: false, // metadata still enforces background mode
-		})
-
-		mockResponsesCreate.mockResolvedValueOnce(createMinimalIterable())
-
-		for await (const chunk of handlerWithOptionFalse.createMessage(
-			systemPrompt,
-			baseMessages,
-			metadataStoreFalse,
-		)) {
-			chunks.push(chunk)
-		}
-
-		const requestBodyWithOptionFalse = mockResponsesCreate.mock.calls[0][0]
-		// Still enabled due to model.info.backgroundMode
-		expect(requestBodyWithOptionFalse.background).toBe(true)
-		expect(requestBodyWithOptionFalse.store).toBe(true)
-		expect(requestBodyWithOptionFalse.stream).toBe(true)
-	})
-
-	it("prefers background polling (stream:false) for gpt-5-pro on Azure baseUrl", async () => {
-		const handler = new OpenAiNativeHandler({
-			apiModelId: "gpt-5-pro-2025-10-06",
+			apiModelId: modelId,
 			openAiNativeApiKey: "test",
 			openAiNativeBaseUrl: "https://example.openai.azure.com/openai/v1",
 		})

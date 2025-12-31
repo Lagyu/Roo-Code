@@ -48,6 +48,21 @@ export const openAiNativeModels = {
 		],
 		description: "GPT-5.2: Our flagship model for coding and agentic tasks across industries",
 	},
+	"gpt-5.2-pro": {
+		maxTokens: 128000,
+		contextWindow: 400000,
+		supportsImages: true,
+		supportsPromptCache: false,
+		supportsReasoningEffort: ["medium", "high", "xhigh"],
+		reasoningEffort: "high",
+		inputPrice: 21.0,
+		outputPrice: 168.0,
+		description:
+			"GPT-5.2 Pro: Our most intelligent and precise model. Long-running requests may benefit from background mode.",
+		supportsVerbosity: true,
+		supportsTemperature: false,
+		backgroundMode: true,
+	},
 	"gpt-5.2-chat-latest": {
 		maxTokens: 16_384,
 		contextWindow: 128_000,
@@ -490,6 +505,21 @@ export const openAiNativeModels = {
 		supportsTemperature: false,
 		description:
 			"Codex Mini: Cloud-based software engineering agent powered by codex-1, a version of o3 optimized for coding tasks. Trained with reinforcement learning to generate human-style code, adhere to instructions, and iteratively run tests.",
+	},
+	"gpt-5.2-pro-2025-12-11": {
+		maxTokens: 128000,
+		contextWindow: 400000,
+		supportsImages: true,
+		supportsPromptCache: false,
+		supportsReasoningEffort: ["medium", "high", "xhigh"],
+		reasoningEffort: "high",
+		inputPrice: 21.0,
+		outputPrice: 168.0,
+		description:
+			"GPT-5.2 Pro (2025-12-11 snapshot): Our most intelligent and precise model. Long-running requests may benefit from background mode.",
+		supportsVerbosity: true,
+		supportsTemperature: false,
+		backgroundMode: true,
 	},
 	// Dated clones (snapshots) preserved for backward compatibility
 	"gpt-5-2025-08-07": {
