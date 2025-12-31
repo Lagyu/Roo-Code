@@ -6,7 +6,7 @@ import { Package } from "@roo/package"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { vscode } from "@/utils/vscode"
-import { Button, Input, Slider } from "@/components/ui"
+import { Button, Input } from "@/components/ui"
 
 import { SetCachedStateField } from "./types"
 import { SectionHeader } from "./SectionHeader"
@@ -242,17 +242,30 @@ export const AutoApproveSettings = ({
 						</div>
 						<div>
 							<div className="flex items-center gap-2">
-								<Slider
-									min={1000}
-									max={300000}
-									step={1000}
-									value={[followupAutoApproveTimeoutMs]}
-									onValueChange={([value]) =>
-										setCachedStateField("followupAutoApproveTimeoutMs", value)
-									}
-									data-testid="followup-timeout-slider"
+								<Input
+									type="number"
+									pattern="[0-9]*"
+									className="w-24 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+									min={0}
+									step={1}
+									value={Math.max(0, Math.round(followupAutoApproveTimeoutMs / 1000))}
+									onChange={(e) => {
+										const seconds = parseInt(e.target.value, 10)
+
+										if (isNaN(seconds)) {
+											return
+										}
+
+										const safeSeconds = Math.min(
+											Math.max(0, seconds),
+											Math.floor(Number.MAX_SAFE_INTEGER / 1000),
+										)
+										setCachedStateField("followupAutoApproveTimeoutMs", safeSeconds * 1000)
+									}}
+									onClick={(e) => e.currentTarget.select()}
+									data-testid="followup-timeout-seconds-input"
 								/>
-								<span className="w-20">{followupAutoApproveTimeoutMs / 1000}s</span>
+								<span>s</span>
 							</div>
 							<div className="text-vscode-descriptionForeground text-sm mt-1">
 								{t("settings:autoApprove.followupQuestions.timeoutLabel")}
